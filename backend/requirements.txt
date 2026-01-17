@@ -1,0 +1,17 @@
+# Backend dependencies
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+pydantic-settings
+email-validator
+sqlalchemy
+psycopg2-binary
+alembic
+python-jose
+# passlib[bcrypt]
+python-multipart
+passlib[argon2]
+argon2-cffi
+pytest
+httpx
