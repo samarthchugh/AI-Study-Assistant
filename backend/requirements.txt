@@ -1,4 +1,5 @@
 # Backend dependencies
+# WEEK 1
 fastapi
 uvicorn[standard]
 python-dotenv
@@ -9,9 +10,17 @@ sqlalchemy
 psycopg2-binary
 alembic
 python-jose
-# passlib[bcrypt]
 python-multipart
 passlib[argon2]
 argon2-cffi
 pytest
 httpx
+
+# WEEK 2
+pymupdf
+sentence-transformers
+transformers
+torch
+faiss-cpu
+numpy
+scikit-learn
