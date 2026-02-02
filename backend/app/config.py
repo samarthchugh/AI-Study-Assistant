@@ -1,4 +1,7 @@
 from pydantic_settings import BaseSettings
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     APP_NAME: str = "AI Study Assistant"
@@ -12,8 +15,28 @@ class Settings(BaseSettings):
     # database
     DATABASE_URL: str
     
+    # Vector store
+    DATA_DIR: Path = Path("faiss_data")
+    FAISS_INDEX_NAME: str = "index_v1_flat"
+    FAISS_INDEX_TYPE: str = "flat"
+    
+    @property
+    def FAISS_DIR(self) -> Path:
+        path = self.DATA_DIR / "faiss"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    
+    @property
+    def FAISS_INDEX_PATH(self) -> Path:
+        return self.FAISS_DIR / f"{self.FAISS_INDEX_NAME}.faiss"
+    
+    @property
+    def FAISS_META_PATH(self) -> Path:
+        return self.FAISS_DIR / f"{self.FAISS_INDEX_NAME}.meta.pkl"
+    
     class Config:
-        env_file = ".env"
+        env_file = BASE_DIR.parent / ".env"
+        extra = "ignore"
         
         
 settings = Settings()
