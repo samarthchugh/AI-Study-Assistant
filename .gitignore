@@ -217,3 +217,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# downloaded LLM models
+backend/models/
+*.gguf

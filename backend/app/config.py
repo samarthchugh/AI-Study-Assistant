@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -16,9 +17,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     
     # Vector store
-    DATA_DIR: Path = Path("faiss_data")
+    DATA_DIR: Path = Path(os.getenv("FAISS_DATA_DIR", BASE_DIR / "faiss_data"))
     FAISS_INDEX_NAME: str = "index_v1_flat"
     FAISS_INDEX_TYPE: str = "flat"
+    
+    # LLM
+    LLM_MODEL_PATH: str 
     
     @property
     def FAISS_DIR(self) -> Path:

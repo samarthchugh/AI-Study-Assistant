@@ -1,8 +1,12 @@
 from pathlib import Path
 from typing import List, Dict
-
+import uuid
+from datetime import datetime
 import fitz # PyMuPDF
 from app.utils.logging import get_logger
+from app.rag.chunking import create_chunks
+from app.rag.embeddings import embed_text
+from app.services.vector_store import FAISSVectorStore
 logger = get_logger(__name__)
 
 class PDFIngestionError(Exception):
@@ -84,6 +88,64 @@ def _clean_text(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines)
 
+def ingest_pdf_to_vectorstore(
+    pdf_path: str,
+    vector_store: FAISSVectorStore,
+    source: str = "user_upload"
+):
+    """
+    Full Ingestion Pipeline
+    PDF -> pages -> chunks -> embeddings -> FAISS
+    """
+    # 1. Load PDF
+    pages = load_pdf(pdf_path)
+    
+    # 2. Create document ID (One-per Document)
+    doc_id = str(uuid.uuid4())
+    
+    # 3. Chunk pages
+    chunks = create_chunks(pages, doc_id=doc_id)
+    if not chunks:
+        logger.warning("No chunks created from the PDF.")
+        return
+    
+    # 4. Prepare text + metadata
+    texts = []
+    metadatas = []
+    
+    for chunk in chunks:
+        texts.append(chunk['text'])
+        metadatas.append({
+            "chunk_id": chunk['chunk_id'],
+            "doc_id": chunk['doc_id'],
+            "page": chunk['page'],
+            "source": source,
+            "created_at": datetime.utcnow().isoformat(),
+            
+            # placeholder 
+            "topic": None,
+            "subtopic": None,
+            "difficulty": None,
+            
+            # required for retrivel
+            "text": chunk['text'],      
+        })
+        
+    # 5. Embed chunks
+    embeddings = embed_text(texts)
+    
+    # 6. store in vector store
+    vector_store.add(embeddings, metadatas)
+    vector_store.save()
+    logger.info(
+        "PDF ingestion and vector store update completed",
+        extra={
+            "pdf_path": pdf_path,
+            "num_chunks": len(chunks),
+            "doc_id": doc_id
+        }
+    )
+    
 # if __name__ == "__main__":
 #     # Simple test
 #     test_pdf_path = r"C:\\Users\\samarth\\OneDrive\\Desktop\\Study material\\ResumeV8.pdf"

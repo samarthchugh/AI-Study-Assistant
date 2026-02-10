@@ -19,8 +19,17 @@ httpx
 # WEEK 2
 pymupdf
 sentence-transformers
-transformers
-torch
+# transformers
+# torch
 faiss-cpu
 numpy
 scikit-learn
+
+# # llm
+# transformers
+# torch
+# accelerate
+# sentencepiece
+
+# experimental for changing the LLm inference
+llama-cpp-python
