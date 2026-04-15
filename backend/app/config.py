@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     
     # LLM
     LLM_MODEL_PATH: str 
+    GROQ_API_KEY: str
+    GROQ_MODEL_NAME: str = "llama-3.1-8b-instant"
     
     @property
     def FAISS_DIR(self) -> Path:

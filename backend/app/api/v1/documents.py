@@ -14,8 +14,9 @@ vector_store = vector_store  # ensure vector store is initialized at module load
 
 @router.post("/upload")
 def upload_document(
+    topic: str,
     file: UploadFile = File(...),
-    user_id: str = Depends(get_current_user)
+    current_user_id: str = Depends(get_current_user)
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -30,6 +31,8 @@ def upload_document(
         ingest_pdf_to_vectorstore(
             pdf_path=tmp_path,
             vector_store=vector_store,
+            topic=topic,
+            user_id=int(current_user_id),
             source="user_upload"
         )
 

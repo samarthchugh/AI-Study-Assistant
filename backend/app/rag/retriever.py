@@ -12,15 +12,16 @@ class Retriever:
     """
     Retriever = Query -> Relevant document chunks (FAISS-based)
     """
-    def __init__(self, vector_store: FAISSVectorStore, top_k: int = 5, score_threshold: float = 0.15, max_context_chars: int = 4000):
+    def __init__(self, vector_store: FAISSVectorStore, top_k: int = 8, score_threshold: float = 0.15, max_context_chars: int = 8000):
         self.vector_store = vector_store
         self.top_k = top_k
         self.score_threshold = score_threshold
         self.max_context_chars = max_context_chars
         
-    def retrieve(self, query: str) -> List[RetrievedChunk]:
+    def retrieve(self, query: str, filters: Dict | None = None) -> List[RetrievedChunk]:
         """
-        Retreive relevant chunks for a given query.
+        Retrieve relevant chunks for a given query
+        with optional metadata filtering.
         """
         
         if not query or not query.strip():
@@ -33,7 +34,9 @@ class Retriever:
         # 2. FAISS search (over-fetch)
         results = self.vector_store.search(
             query_embeddings=query_embedding,
-            top_k=self.top_k * 2  # Over-fetching
+            top_k=self.top_k * 2,  # Over-fetching
+            filters=filters,
+            search_k=self.top_k * 6  # Retrieve more for better filtering
         )
         
         candidates: List[RetrievedChunk] = []

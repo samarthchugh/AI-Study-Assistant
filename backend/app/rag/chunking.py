@@ -5,8 +5,8 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 # ---- Configuration ----
-CHUNK_SIZE = 600  # approx tokens (word-based approximation)
-CHUNK_OVERLAP = 120  # Number of overlapping characters between chunks
+CHUNK_SIZE = 800  # approx tokens (word-based approximation) if this not works going back to 600
+CHUNK_OVERLAP = 200  # Number of overlapping characters between chunks (helps maintain context for retrieval) if not works going back to 120
 
 # ---- Public APIs ----
 def create_chunks(pages: List[Dict[str, str]], doc_id: str, chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> List[Dict[str, str]]:

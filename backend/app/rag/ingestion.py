@@ -91,6 +91,8 @@ def _clean_text(text: str) -> str:
 def ingest_pdf_to_vectorstore(
     pdf_path: str,
     vector_store: FAISSVectorStore,
+    topic: str ,
+    user_id: int,
     source: str = "user_upload"
 ):
     """
@@ -113,17 +115,19 @@ def ingest_pdf_to_vectorstore(
     texts = []
     metadatas = []
     
-    for chunk in chunks:
+    for i,chunk in enumerate(chunks):
         texts.append(chunk['text'])
         metadatas.append({
             "chunk_id": chunk['chunk_id'],
             "doc_id": chunk['doc_id'],
+            "chunk_index": i,
             "page": chunk['page'],
             "source": source,
             "created_at": datetime.utcnow().isoformat(),
             
             # placeholder 
-            "topic": None,
+            "user_id": user_id,
+            "topic": topic,
             "subtopic": None,
             "difficulty": None,
             

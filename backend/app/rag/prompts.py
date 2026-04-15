@@ -26,10 +26,23 @@ def build_qa_prompt(context_chunks: List[RetrievedChunk], question: str) -> str:
     
     RULES (MANDATORY):
     - You must answer using the ONLY the information provided in the CONTEXT section.
-    - You must NOT use any external knowledge or make assumptions.
-    - If the answer is not found in the context, you MUST respond with: 
-    "{REFUSAL_MESSAGE}"
-    - Do NOT guess, infer, or add information that is not explicitly stated in the context.
+    - You must NOT use any external knowledge.
+    - Do NOT hallucinate or invent facts.
+    - However, the answer may not be explicitly written as a direct sentence.
+    - You are allowed to infer and extract relevant information from the context, but you must NOT add any information that is not supported by the context.
+    - The answer may be spread across multiple context chunks. Combine information from all relevant chunks.
+    - Some information may reference other parts of the document. Use the metadata to understand relationships between chunks.
+    
+    ANSWERING GUIDELINES:
+    - If the answer is clearly present -> answer completely.
+    - If the question has multiple parts, -> answer all using the context.
+    - If the answer is partially available -> answer what you can and clearly mention missing parts.
+    - Only respond with "{REFUSAL_MESSAGE}" if NO relevant information is found in the context to answer ANY part of the question.
+    
+    STYLE:
+    - Be clear and explanatory.
+    - Do NOT just copy-paste from the context. Always use your own words to explain.
+    - If multiple context chunks are relevant, synthesize the information together in a coherent way.
     
     CONTEXT:
     {context_text}

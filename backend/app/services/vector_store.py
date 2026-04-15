@@ -43,18 +43,40 @@ class FAISSVectorStore:
             },
         )
         
-    def search(self, query_embeddings: np.ndarray, top_k: int = 5) -> List[Tuple[float, Dict]]:
+    def search(self, query_embeddings: np.ndarray, top_k: int = 8, filters: Dict | None = None, search_k: int = 40) -> List[Tuple[float, Dict]]:
         """
-        Search the index and return top-k results with metadata.
+        Search the index and return top-k results with with optional metadata filtering.
+        
+        Args:
+            query_embeddings: embedding of query
+            top_k: final number of results to return
+            filters: metadata filters like {"topic": "Machine Learning", "user_id": 1}
+            search_k: how many vectors to initially retrieve before filtering
         """
         
         query_embeddings = query_embeddings.astype(np.float32)
-        scores, indices = self.index.search(query_embeddings, top_k)
+        
+         # Step 1: Retrieve more candidates than needed to allow for filtering
+        scores, indices = self.index.search(query_embeddings, search_k)
+        
         results = []
+        
         for score, idx in zip(scores[0], indices[0]):
             if idx == -1:
                 continue
-            results.append((score, self.metadata[idx]))
+            
+            metadata = self.metadata[idx]
+            
+            # Step 2: Apply metadata filters if provided
+            if filters:
+                match = all(metadata.get(k) == v for k, v in filters.items())
+                if not match:
+                    continue
+            results.append((score, metadata))
+            
+            if len(results) >= top_k:
+                break
+            
         return results
     
     def save(self) -> None:

@@ -14,7 +14,7 @@ router = APIRouter(prefix="/rag", tags=["RAG"])
 
 vector_store = vector_store  # ensure vector store is initialized at module load time
 
-retriever = Retriever(vector_store=vector_store, top_k=5, score_threshold=0.15, max_context_chars=4000)
+retriever = Retriever(vector_store=vector_store, top_k=8, score_threshold=0.15, max_context_chars=4000)
 
 pipeline = QueryAnswerPipeline(retriever=retriever)
 
@@ -25,7 +25,7 @@ def ask_question(request: AskRequest, user_id: str = Depends(get_current_user)):
     """
     logger.info("RAG API called", extra={"question": request.question})
     try:
-        result = pipeline.answer_query(request.question)
+        result = pipeline.answer_query(request.question, user_id= int(user_id))
         return result
     except Exception as e:
         logger.exception("RAG pipeline failed")
