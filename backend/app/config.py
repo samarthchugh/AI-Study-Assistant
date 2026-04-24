@@ -1,8 +1,10 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 import os
+import redis
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     APP_NAME: str = "AI Study Assistant"
@@ -26,6 +28,11 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str
     GROQ_MODEL_NAME: str = "llama-3.1-8b-instant"
     
+    # Redis
+    REDIS_HOST: str 
+    REDIS_PORT: int 
+    REDIS_DB: int 
+    
     @property
     def FAISS_DIR(self) -> Path:
         path = self.DATA_DIR / "faiss"
@@ -46,3 +53,5 @@ class Settings(BaseSettings):
         
         
 settings = Settings()
+
+redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=settings.REDIS_DB, decode_responses=True)

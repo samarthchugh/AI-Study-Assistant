@@ -54,28 +54,55 @@ class FAISSVectorStore:
             search_k: how many vectors to initially retrieve before filtering
         """
         
-        query_embeddings = query_embeddings.astype(np.float32)
+        query_vec = query_embeddings.astype(np.float32)
+        if query_vec.ndim == 2:
+            query_vec = query_vec[0]
+            
+        query_vec = query_vec / np.linalg.norm(query_vec)  # Normalize for cosine similarity
+         # Step 1: pre-filter metadata indices
+        if filters:
+            def _matches(meta: Dict, filters: Dict) -> bool:
+                for k, v in filters.items():
+                    stored = meta.get(k)
+                    if stored == v:
+                        continue
+                    # Coerce both to str to handle int/str mismatches (e.g. user_id stored as "4" vs 4)
+                    if stored is not None and str(stored) == str(v):
+                        continue
+                    return False
+                return True
+
+            valid_indices = [
+                i for i, meta in enumerate(self.metadata)
+                if _matches(meta, filters)
+            ]
+        else:
+            valid_indices = list(range(len(self.metadata)))
         
-         # Step 1: Retrieve more candidates than needed to allow for filtering
-        scores, indices = self.index.search(query_embeddings, search_k)
+        if not valid_indices:
+            logger.info("No valid indices found for the given filters.")
+            return []
         
+        # Step 2: efficiently reconstruct vectores only for valid indices
+        vectors = np.vstack([
+            self.index.reconstruct(i) for i in valid_indices
+        ]).astype(np.float32)
+        
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        vectors = vectors / (norms + 1e-10)  # Normalize to prevent division by zero
+        
+        # Step 3: Compute similarity (inner product)
+        scores = np.dot(vectors, query_vec)
+        # Step 4: Get top_k indices
+        top_k = min(top_k, len(scores))
+        top_indices = np.argsort(scores)[::-1][:top_k]
+        
+        # STep 5: Build results
         results = []
         
-        for score, idx in zip(scores[0], indices[0]):
-            if idx == -1:
-                continue
-            
-            metadata = self.metadata[idx]
-            
-            # Step 2: Apply metadata filters if provided
-            if filters:
-                match = all(metadata.get(k) == v for k, v in filters.items())
-                if not match:
-                    continue
-            results.append((score, metadata))
-            
-            if len(results) >= top_k:
-                break
+        for i in top_indices:
+            idx = valid_indices[i]
+            results.append((float(scores[i]), self.metadata[idx]))
             
         return results
     

@@ -34,3 +34,6 @@ scikit-learn
 # experimental for changing the LLm inference
 llama-cpp-python
 groq
+redis
+langgraph
+langchain

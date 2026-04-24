@@ -6,6 +6,7 @@ from app.api.v1.users import router as users_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.rag import router as rag_router
 from app.api.v1.quiz import router as quiz_router
+from app.api.v1.analytics import router as analytics_router
 from app.utils.logging import get_logger
 
 import threading
@@ -40,3 +41,4 @@ app.include_router(users_router)
 app.include_router(documents_router)
 app.include_router(rag_router)
 app.include_router(quiz_router)
+app.include_router(analytics_router)

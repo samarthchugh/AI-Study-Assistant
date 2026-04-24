@@ -12,7 +12,7 @@ class Retriever:
     """
     Retriever = Query -> Relevant document chunks (FAISS-based)
     """
-    def __init__(self, vector_store: FAISSVectorStore, top_k: int = 8, score_threshold: float = 0.15, max_context_chars: int = 8000):
+    def __init__(self, vector_store: FAISSVectorStore, top_k: int = 8, score_threshold: float = 0.10, max_context_chars: int = 8000):
         self.vector_store = vector_store
         self.top_k = top_k
         self.score_threshold = score_threshold

@@ -7,6 +7,7 @@ from app.utils.logging import get_logger
 from app.rag.chunking import create_chunks
 from app.rag.embeddings import embed_text
 from app.services.vector_store import FAISSVectorStore
+from app.utils.topic_utils import normalize_topic
 logger = get_logger(__name__)
 
 class PDFIngestionError(Exception):
@@ -127,7 +128,7 @@ def ingest_pdf_to_vectorstore(
             
             # placeholder 
             "user_id": user_id,
-            "topic": topic,
+            "topic": normalize_topic(topic),
             "subtopic": None,
             "difficulty": None,
             

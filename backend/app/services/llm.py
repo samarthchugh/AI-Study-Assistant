@@ -18,6 +18,7 @@ client = Groq(api_key=settings.GROQ_API_KEY)
 MODEL_NAME = settings.GROQ_MODEL_NAME
 
 MAX_RETRIES = 3
+DEFAULT_SYSTEM_PROMPT = "You are a careful and factual study assistant. You must answer ONLY from the provided context."
 
 # -----------------------------
 # Public API
@@ -25,6 +26,7 @@ MAX_RETRIES = 3
 
 def generate_completion(
     prompt: str,
+    system_prompt: str = None
     # max_tokens: int = MAX_NEW_TOKENS,
     # temperature: float = TEMPERATURE
 ) -> str:
@@ -46,7 +48,7 @@ def generate_completion(
                 messages = [
                     {
                         'role': 'system',
-                        'content': "You are a careful and factual study assistant. You must answer ONLY from the provided context."
+                        'content': DEFAULT_SYSTEM_PROMPT or system_prompt
                     },
                     {
                         "role": "user",

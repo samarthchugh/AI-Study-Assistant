@@ -1,0 +1,763 @@
+openapi: 3.1.0
+info:
+  title: AI Study Assistant
+  version: 1.0.0
+  description: |
+    AI-powered study and revision agent with RAG-based Q&A, adaptive quiz generation,
+    and personalised learning analytics.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    UserCreate:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 64
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        provider:
+          type: string
+          example: local
+        created_at:
+          type: string
+          format: date-time
+
+    Token:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: bearer
+
+    # ── RAG ───────────────────────────────────────────────────────────────────
+    AskRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 1
+
+    AskResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+        sources:
+          type: array
+          items:
+            type: string
+        confidence:
+          type: number
+          format: float
+
+    # ── Quiz ──────────────────────────────────────────────────────────────────
+    AnswerItem:
+      type: object
+      required: [question_id, answer]
+      properties:
+        question_id:
+          type: integer
+        answer:
+          type: string
+          minLength: 1
+
+    SubmitQuizRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnswerItem'
+
+    SubmitQuizResponse:
+      type: object
+      properties:
+        quiz_id:
+          type: integer
+        score_ratio:
+          type: number
+          format: float
+        correct_answers:
+          type: integer
+        total_questions:
+          type: integer
+        new_difficulty:
+          type: integer
+          minimum: 1
+          maximum: 5
+        updated_mastery:
+          type: number
+          format: float
+        time_taken_seconds:
+          type: integer
+
+    QuestionOption:
+      type: object
+      properties:
+        question_id:
+          type: integer
+        question_text:
+          type: string
+        options:
+          type: object
+          additionalProperties: true
+
+    QuizDetail:
+      type: object
+      properties:
+        quiz_id:
+          type: integer
+        topic:
+          type: string
+        difficulty:
+          type: integer
+        total_questions:
+          type: integer
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionOption'
+
+    # ── Analytics ─────────────────────────────────────────────────────────────
+    WeakTopic:
+      type: object
+      properties:
+        topic:
+          type: string
+        weakness:
+          type: number
+          format: float
+        confidence:
+          type: number
+          format: float
+
+    RevisionTopic:
+      type: object
+      properties:
+        topic:
+          type: string
+        confidence:
+          type: number
+          format: float
+        retention:
+          type: number
+          format: float
+        revision_priority:
+          type: number
+          format: float
+
+    SmartRecommendationDetails:
+      type: object
+      properties:
+        topic:
+          type: string
+        confidence:
+          type: number
+          format: float
+        weakness:
+          type: number
+          format: float
+        retention:
+          type: number
+          format: float
+        forgetting:
+          type: number
+          format: float
+        combined_score:
+          type: number
+          format: float
+
+    ScheduleItem:
+      type: object
+      properties:
+        day:
+          type: string
+          example: Monday
+        date:
+          type: string
+          format: date
+        topic:
+          type: string
+        task:
+          type: string
+          enum: [revise, practice]
+        priority:
+          type: string
+          enum: [high, medium, low]
+
+    # ── Errors ────────────────────────────────────────────────────────────────
+    HTTPError:
+      type: object
+      properties:
+        detail:
+          type: string
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ── Health ───────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  # ── Auth ─────────────────────────────────────────────────────────────────────
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '200':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  /auth/token:
+    post:
+      tags: [Auth]
+      summary: Login and obtain JWT access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  description: The user's email address
+                password:
+                  type: string
+      responses:
+        '200':
+          description: JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  # ── Users ─────────────────────────────────────────────────────────────────────
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current authenticated user
+      responses:
+        '200':
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  # ── Documents ─────────────────────────────────────────────────────────────────
+  /documents/upload:
+    post:
+      tags: [Documents]
+      summary: Upload and ingest a PDF study document
+      description: |
+        Accepts a PDF file and a topic label. Extracts text, creates embeddings,
+        and ingests into the FAISS vector store tagged with the user's ID and topic.
+        Also registers the topic in Redis for the user.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, topic]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF file only
+                topic:
+                  type: string
+                  description: Topic label for this document (e.g. "Machine Learning")
+      responses:
+        '200':
+          description: Document ingested successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Document uploaded and indexed
+        '400':
+          description: File is not a PDF
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '500':
+          description: Ingestion error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  # ── RAG ───────────────────────────────────────────────────────────────────────
+  /rag/ask:
+    post:
+      tags: [RAG]
+      summary: Ask a question against uploaded study material
+      description: |
+        Embeds the question, retrieves relevant chunks from FAISS (scoped to the
+        authenticated user), and generates an answer via the Groq LLM.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+      responses:
+        '200':
+          description: Answer with source references
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AskResponse'
+        '500':
+          description: Pipeline error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  # ── Quiz ──────────────────────────────────────────────────────────────────────
+  /quiz/generate:
+    post:
+      tags: [Quiz]
+      summary: Generate a new adaptive quiz
+      description: |
+        Generates a quiz using the RAG pipeline to fetch relevant chunks and the
+        Groq LLM to produce questions. Difficulty is adaptive — it adjusts based
+        on the user's `UserTopicProgress` record. If no topic is specified, the
+        smart recommender picks one automatically.
+      parameters:
+        - name: topic
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Topic to quiz on. Omit to let the system recommend one.
+        - name: num_questions
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 5
+        - name: difficulty
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 2
+            minimum: 1
+            maximum: 5
+      responses:
+        '200':
+          description: Quiz created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quiz_id:
+                    type: integer
+                  topic:
+                    type: string
+                  difficulty:
+                    type: integer
+                  total_questions:
+                    type: integer
+        '500':
+          description: Generation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  /quiz/{quiz_id}:
+    get:
+      tags: [Quiz]
+      summary: Fetch a quiz with its questions
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Quiz details with questions (options shown, correct answers hidden)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizDetail'
+        '404':
+          description: Quiz not found or does not belong to this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  /quiz/{quiz_id}/start:
+    post:
+      tags: [Quiz]
+      summary: Start a quiz attempt
+      description: Creates a QuizAttempt record and records the start time.
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Attempt started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Quiz started
+        '400':
+          description: Cannot start quiz
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  /quiz/{quiz_id}/submit:
+    post:
+      tags: [Quiz]
+      summary: Submit quiz answers and get scored results
+      description: |
+        Scores each answer, calculates score_ratio, adjusts the user's difficulty
+        level and mastery score, persists a QuizAttempt, and fires
+        IntelligenceService.process_attempt() to update Redis signals
+        (confidence, weak topics, forgetting curve).
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attempt_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitQuizRequest'
+      responses:
+        '200':
+          description: Scored results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitQuizResponse'
+        '500':
+          description: Submission error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  # ── Analytics ─────────────────────────────────────────────────────────────────
+  /analytics/weak-topics:
+    get:
+      tags: [Analytics]
+      summary: Get top 5 weak topics for the user
+      description: Returns topics ranked by weakness score (1 - confidence), highest first.
+      responses:
+        '200':
+          description: Weak topics list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  weak_topics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WeakTopic'
+
+  /analytics/confidence:
+    get:
+      tags: [Analytics]
+      summary: Get confidence score for a specific topic
+      description: |
+        Confidence is a composite of recency-weighted score (α=0.7) and mastery score (α=0.3).
+        Range: 0.0 (no confidence) to 1.0 (full mastery).
+      parameters:
+        - name: topic
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Confidence score
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  topic:
+                    type: string
+                  confidence:
+                    type: number
+                    format: float
+
+  /analytics/all-topics:
+    get:
+      tags: [Analytics]
+      summary: Get all topics the user has uploaded material for
+      responses:
+        '200':
+          description: Topic list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  topics:
+                    type: array
+                    items:
+                      type: string
+
+  /analytics/overview:
+    get:
+      tags: [Analytics]
+      summary: Full analytics overview
+      description: Returns all topics, top 5 weak topics, and a per-topic confidence map in one call.
+      responses:
+        '200':
+          description: Overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  topics:
+                    type: array
+                    items:
+                      type: string
+                  weak_topics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WeakTopic'
+                  confidence_map:
+                    type: object
+                    additionalProperties:
+                      type: number
+                      format: float
+
+  /analytics/recommend:
+    get:
+      tags: [Analytics]
+      summary: Get the next recommended topic to study
+      description: |
+        Returns the weakest topic from the Redis ZSET. Falls back to any known
+        topic if no weakness data exists yet.
+      responses:
+        '200':
+          description: Recommendation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      recommended_topic:
+                        type: string
+                      reason:
+                        type: string
+                        enum: [weak_topic, fallback_topic]
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: no_content
+                      message:
+                        type: string
+
+  /analytics/revision:
+    get:
+      tags: [Analytics]
+      summary: Get topics that need revision based on the forgetting curve
+      description: |
+        Uses an exponential decay model (e^-λt) applied to the time since the
+        last attempt. Topics with low retention score bubble to the top.
+      parameters:
+        - name: top_k
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 3
+      responses:
+        '200':
+          description: Revision topics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  revision_topics:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RevisionTopic'
+
+  /analytics/recommend-smart:
+    get:
+      tags: [Analytics]
+      summary: Smart topic recommendation combining weakness and forgetting
+      description: |
+        Scores every topic as: `0.6 × weakness + 0.4 × forgetting`. Returns the
+        highest-scoring topic with full diagnostic details.
+      responses:
+        '200':
+          description: Smart recommendation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      recommended_topic:
+                        type: string
+                      reason:
+                        $ref: '#/components/schemas/SmartRecommendationDetails'
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: no_content
+                      message:
+                        type: string
+
+  /analytics/weekly-plan:
+    get:
+      tags: [Analytics]
+      summary: Generate a weekly study plan via AI agent pipeline
+      description: |
+        Runs a three-node LangGraph pipeline:
+        1. **AnalyzerAgent** — reads weak topics, revision topics, and smart recommendation
+        2. **PlannerAgent** — converts analysis into prioritised tasks (revise → practice)
+        3. **Scheduler** — maps tasks to calendar days starting from today
+      responses:
+        '200':
+          description: Weekly schedule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  weekly_plan:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduleItem'
+        '500':
+          description: Agent pipeline error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
