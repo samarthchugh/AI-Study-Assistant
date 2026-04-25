@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.services.quiz_engine import QuizEngine
@@ -23,8 +23,8 @@ router = APIRouter(prefix='/quiz', tags=['QUIZ'])
 def generate_quiz(
     topic: Optional[str] = None,
     num_questions: int = 5,
-    difficulty: int = 2,
-    current_user_id: str = Depends(get_current_user), 
+    difficulty: Optional[int] = None,
+    current_user_id: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     try:
@@ -50,6 +50,60 @@ def generate_quiz(
     except Exception as e:
         logger.error(f"Error generating quiz for user {current_user_id}, topic {topic}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/my-quizzes")
+def list_my_quizzes(
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user),
+):
+    """Return all quizzes for the current user with computed status."""
+    user_id = int(current_user_id)
+    quizzes = (
+        db.query(Quiz)
+        .filter(Quiz.user_id == user_id)
+        .options(joinedload(Quiz.attempts))
+        .order_by(Quiz.created_at.desc())
+        .all()
+    )
+
+    result = []
+    for quiz in quizzes:
+        submitted = [a for a in quiz.attempts if a.submitted_at is not None]
+        pending   = [a for a in quiz.attempts if a.submitted_at is None]
+
+        if quiz.status == "completed" and submitted:
+            best = max(submitted, key=lambda a: a.submitted_at)
+            entry_status     = "completed"
+            score_ratio      = best.score_ratio
+            time_taken       = best.time_taken_seconds
+            attempt_id       = best.id
+        elif pending:
+            latest = max(pending, key=lambda a: a.start_time or datetime.min.replace(tzinfo=timezone.utc))
+            entry_status     = "in_progress"
+            score_ratio      = None
+            time_taken       = None
+            attempt_id       = latest.id
+        else:
+            entry_status     = "not_started"
+            score_ratio      = None
+            time_taken       = None
+            attempt_id       = None
+
+        result.append({
+            "quiz_id":           quiz.id,
+            "topic":             quiz.topic,
+            "difficulty":        quiz.difficulty_level,
+            "total_questions":   quiz.total_questions,
+            "status":            entry_status,
+            "created_at":        quiz.created_at.isoformat() if quiz.created_at else None,
+            "completed_at":      quiz.completed_at.isoformat() if quiz.completed_at else None,
+            "score_ratio":       round(score_ratio, 3) if score_ratio is not None else None,
+            "time_taken_seconds": time_taken,
+            "attempt_id":        attempt_id,
+        })
+
+    return {"quizzes": result}
+
 
 @router.get("/{quiz_id}")
 def get_quiz(

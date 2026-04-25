@@ -275,17 +275,21 @@ class IntelligenceService:
         
     def get_revision_topics(self, user_id: int, top_k: int = 3):
         """
-        Return Topics that need revision based on forgetting curve
+        Return Topics that need revision based on forgetting curve.
+        Only includes topics where the user has attempted at least one quiz —
+        the forgetting curve requires a real baseline score to be meaningful.
         """
         try:
             topics = self.redis.smembers(f"user:{user_id}:topics")
-            
+
             revision_scores = []
-            
+
             for topic in topics:
                 topic = normalize_topic(topic)
-                confidence = self._get_confidence(user_id, topic)
                 last_ts = self._get_last_attempt_time(user_id, topic)
+                if last_ts is None:
+                    continue  # no quiz attempt yet — nothing to revise
+                confidence = self._get_confidence(user_id, topic)
                 retention = self._compute_forgetting_score(last_ts, confidence)
                 revision_priority = 1 - retention  # higher means more urgent revision
                 revision_scores.append({

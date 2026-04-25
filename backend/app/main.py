@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 # from app.services.llm import generate_completion
 from app.api.v1.auth import router as auth_router
@@ -31,6 +32,14 @@ logger = get_logger(__name__)
 #     logger.info("Shutting down the application...")
 
 app = FastAPI(title="AI Study Assistant")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health", tags=["health"])
 def health_check():

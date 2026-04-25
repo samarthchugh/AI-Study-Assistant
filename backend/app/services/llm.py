@@ -72,6 +72,27 @@ def generate_completion(
     logger.error(f"LLM failed after retries")
     return ""
         
+def generate_completion_stream(prompt: str, system_prompt: str = None):
+    """Yield text delta chunks from Groq streaming API."""
+    try:
+        stream = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+    except Exception as e:
+        logger.exception("Groq streaming failed")
+        return
+
+
 def _extract_json(text:str):
     """
     Robust JSON extraction from LLM output.

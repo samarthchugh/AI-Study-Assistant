@@ -1,5 +1,5 @@
-from typing import Dict, List
-from app.services.llm import generate_completion
+from typing import Dict, Generator, List
+from app.services.llm import generate_completion, generate_completion_stream
 from app.rag.retriever import Retriever
 from app.rag.prompts import build_qa_prompt, REFUSAL_MESSAGE
 from app.rag.contracts import RetrievedChunk
@@ -146,6 +146,33 @@ class QueryAnswerPipeline:
         }
         
     
+    def stream_query(self, question: str, user_id: int) -> Generator[str, None, None]:
+        """Same retrieval as answer_query, but streams LLM output as text chunks."""
+        if not question or not question.strip():
+            yield "Question is empty."
+            return
+
+        queries = [question, f"{question} explanation", f"{question} concept", f"{question} detailed"]
+        all_chunks = []
+        for q in queries:
+            chunks = self.retriever.retrieve(q, filters={"user_id": user_id})
+            all_chunks.extend(chunks)
+
+        unique_chunks: Dict[str, RetrievedChunk] = {}
+        for c in all_chunks:
+            unique_chunks[c.text] = c
+        context_chunks = list(unique_chunks.values())
+        context_chunks = expand_with_neighbors(context_chunks, window_size=2)
+
+        if not context_chunks:
+            yield REFUSAL_MESSAGE
+            return
+
+        prompt = build_qa_prompt(context_chunks=context_chunks, question=question)
+
+        for chunk in generate_completion_stream(prompt):
+            yield chunk
+
     def _refusal_answer(self) -> Dict:
         return {
             'answer': REFUSAL_MESSAGE,

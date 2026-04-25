@@ -165,7 +165,7 @@ def recommend_smart(
             
         return {
             "recommended_topic": result["topic"],
-            "reason": result
+            "reason": result["details"]
         }
     except Exception as e:
         logger.error(f"Error fetching smart recommendation for user_id: {current_user_id}: {e}")

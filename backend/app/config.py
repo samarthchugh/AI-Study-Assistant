@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         return self.FAISS_DIR / f"{self.FAISS_INDEX_NAME}.meta.pkl"
     
     class Config:
-        env_file = BASE_DIR.parent / ".env"
+        env_file = BASE_DIR / ".env"
         extra = "ignore"
         
         

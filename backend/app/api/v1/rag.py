@@ -1,4 +1,6 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from app.schemas.request import AskRequest, AskResponse
 from app.rag.pipeline import QueryAnswerPipeline
 from app.rag.retriever import Retriever
@@ -30,3 +32,21 @@ def ask_question(request: AskRequest, user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.exception("RAG pipeline failed")
         raise HTTPException(status_code=500, detail="Failed to process the question.")
+
+
+@router.post("/ask-stream")
+def ask_stream(request: AskRequest, user_id: str = Depends(get_current_user)):
+    """Stream the RAG answer as Server-Sent Events."""
+    def event_generator():
+        try:
+            for chunk in pipeline.stream_query(request.question, int(user_id)):
+                yield f"data: {json.dumps(chunk)}\n\n"
+        except Exception:
+            logger.exception("RAG streaming failed")
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
