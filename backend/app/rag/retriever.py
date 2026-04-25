@@ -23,74 +23,81 @@ class Retriever:
         Retrieve relevant chunks for a given query
         with optional metadata filtering.
         """
-        
-        if not query or not query.strip():
-            logger.warning("Empty query received.")
-            return []
-        
-        # 1. Query -> embedding (normalised cosine space)
-        query_embedding = embed_text([query])  # Shape (1, embedding_dim)
-        
-        # 2. FAISS search (over-fetch)
-        results = self.vector_store.search(
-            query_embeddings=query_embedding,
-            top_k=self.top_k * 2,  # Over-fetching
-            filters=filters,
-            search_k=self.top_k * 6  # Retrieve more for better filtering
-        )
-        
-        candidates: List[RetrievedChunk] = []
-        
-        # 3. Score filtering + structuring
-        for score, metadata in results:
-            if score < self.score_threshold:
-                continue
+        try:
+            if not query or not query.strip():
+                logger.warning("Empty query received.")
+                return []
             
-            text = metadata.get("text", "")
-            if not text:
-                continue
+            # 1. Query -> embedding (normalised cosine space)
+            query_embedding = embed_text([query])  # Shape (1, embedding_dim)
             
-            candidates.append(
-                RetrievedChunk(
-                    text=text,
-                    score=float(score),
-                    metadata=metadata
-                )
+            # 2. FAISS search (over-fetch)
+            results = self.vector_store.search(
+                query_embeddings=query_embedding,
+                top_k=self.top_k * 2,  # Over-fetching
+                filters=filters,
+                search_k=self.top_k * 6  # Retrieve more for better filtering
             )
             
-        # 4. Sort by cosine simialrity (higher is better)
-        candidates.sort(key=lambda x: x.score, reverse=True)
-        
-        # 5. Context Trucation
-        final_chunks = self._truncate_context(candidates)
-        
-        logger.info(
-            "Retriever Completed",
-            extra = {
-                "query": query,
-                "chunks_returned": len(final_chunks),
-            }
-        )
-        
-        return final_chunks
+            candidates: List[RetrievedChunk] = []
+            
+            # 3. Score filtering + structuring
+            for score, metadata in results:
+                if score < self.score_threshold:
+                    continue
+                
+                text = metadata.get("text", "")
+                if not text:
+                    continue
+                
+                candidates.append(
+                    RetrievedChunk(
+                        text=text,
+                        score=float(score),
+                        metadata=metadata
+                    )
+                )
+                
+            # 4. Sort by cosine simialrity (higher is better)
+            candidates.sort(key=lambda x: x.score, reverse=True)
+            
+            # 5. Context Trucation
+            final_chunks = self._truncate_context(candidates)
+            
+            logger.info(
+                "Retriever Completed",
+                extra = {
+                    "query": query,
+                    "chunks_returned": len(final_chunks),
+                }
+            )
+            
+            return final_chunks
+        except Exception as e:
+            logger.error(f"Error during retrieval: {e}")
+            return []
     
     def _truncate_context(self, chunks: List[RetrievedChunk]) -> List[RetrievedChunk]:
         """
         Limit total context size and enforce top_k.
         """
-        final_chunks: List[RetrievedChunk] = []
-        total_chars = 0
-        
-        for chunk in chunks:
-            chunk_len = len(chunk.text)
+        try:
+            final_chunks: List[RetrievedChunk] = []
+            total_chars = 0
             
-            if total_chars + chunk_len > self.max_context_chars:
-                break
-            
-            final_chunks.append(chunk)
-            total_chars += chunk_len
-            
-            if len(final_chunks) >= self.top_k:
-                break
+            for chunk in chunks:
+                chunk_len = len(chunk.text)
                 
-        return final_chunks
+                if total_chars + chunk_len > self.max_context_chars:
+                    break
+                
+                final_chunks.append(chunk)
+                total_chars += chunk_len
+                
+                if len(final_chunks) >= self.top_k:
+                    break
+                    
+            return final_chunks
+        except Exception as e:
+            logger.error(f"Error during context truncation: {e}")
+            return []

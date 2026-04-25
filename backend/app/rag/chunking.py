@@ -21,36 +21,40 @@ def create_chunks(pages: List[Dict[str, str]], doc_id: str, chunk_size: int = CH
     Returns:
         List[Dict]: List of chunk objects with metadata
     """
-    chunks: List[Dict[str, str]] = []
-    
-    for page in pages:
-        page_number = page["page"]
-        text = page["text"]
+    try:
+        chunks: List[Dict[str, str]] = []
         
-        page_chunks = _chunk_text(
-            text=text,
-            chunk_size=chunk_size,
-            overlap=chunk_overlap
-        )
-        
-        for chunk_text in page_chunks:
-            chunks.append(
-                {
-                    "chunk_id": str(uuid.uuid4()),
-                    "doc_id": doc_id,
-                    "page": page_number,
-                    "text": chunk_text
-                }
+        for page in pages:
+            page_number = page["page"]
+            text = page["text"]
+            
+            page_chunks = _chunk_text(
+                text=text,
+                chunk_size=chunk_size,
+                overlap=chunk_overlap
             )
-    logger.info(
-        "Chunking completed",
-        extra={
-            "doc_id": doc_id,
-            "pages_processed": len(pages),
-            "chunks_created": len(chunks),
-        }
-    )
-    return chunks
+            
+            for chunk_text in page_chunks:
+                chunks.append(
+                    {
+                        "chunk_id": str(uuid.uuid4()),
+                        "doc_id": doc_id,
+                        "page": page_number,
+                        "text": chunk_text
+                    }
+                )
+        logger.info(
+            "Chunking completed",
+            extra={
+                "doc_id": doc_id,
+                "pages_processed": len(pages),
+                "chunks_created": len(chunks),
+            }
+        )
+        return chunks
+    except Exception as e:
+        logger.error(f"Error during chunking: {e}")
+        return []
 
 # ---- Internal logic ----
 def _chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
@@ -62,42 +66,52 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
     2. Sentences
     3. Word-level fallback
     """
-    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-    
-    chunks : List[str] = []
-    current_chunk : List[str] = []
-    current_length = 0
-    
-    for para in paragraphs:
-        para_length = _length(para)
+    try:
+        paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
         
-        if current_length + para_length <= chunk_size:
-            current_chunk.append(para)
-            current_length += para_length
-        else:
-            if current_chunk:
-                chunks.append(" ".join(current_chunk))
+        chunks : List[str] = []
+        current_chunk : List[str] = []
+        current_length = 0
+        
+        for para in paragraphs:
+            para_length = _length(para)
+            
+            if current_length + para_length <= chunk_size:
+                current_chunk.append(para)
+                current_length += para_length
+            else:
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                    
+                current_chunk = _apply_overlap(
+                    previous_chunk=current_chunk,
+                    overlap=overlap
+                )
                 
-            current_chunk = _apply_overlap(
-                previous_chunk=current_chunk,
-                overlap=overlap
-            )
-            
-            current_chunk.append(para)
-            current_length = _length(" ".join(current_chunk))
-    
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
+                current_chunk.append(para)
+                current_length = _length(" ".join(current_chunk))
         
-    # final safety pass for long paragraphs
-    final_chunks: List[str] = []
-    for chunk in chunks:
-        if _length(chunk) <= chunk_size:
-            final_chunks.append(chunk)
-        else:
-            final_chunks.extend(_fallback_word_split(chunk, chunk_size, overlap))
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
             
-    return final_chunks
+        # final safety pass for long paragraphs
+        final_chunks: List[str] = []
+        for chunk in chunks:
+            if _length(chunk) <= chunk_size:
+                final_chunks.append(chunk)
+            else:
+                final_chunks.extend(_fallback_word_split(chunk, chunk_size, overlap))
+        logger.info(
+            "Text chunking completed",
+            extra={
+                "original_length": _length(text),
+                "chunks_created": len(final_chunks)
+            }
+        )
+        return final_chunks
+    except Exception as e:
+        logger.error(f"Error during text chunking: {e}")
+        return []
 
 def _apply_overlap(previous_chunk: List[str], overlap: int) -> List[str]:
     """

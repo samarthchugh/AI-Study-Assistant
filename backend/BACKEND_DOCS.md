@@ -139,7 +139,6 @@ backend/
 | Embeddings | sentence-transformers | `all-MiniLM-L6-v2` — 384 dimensions |
 | Vector store | faiss-cpu | `IndexFlatIP` (inner-product / cosine) |
 | LLM inference | Groq API | `llama-3.1-8b-instant` |
-| LLM fallback | llama-cpp-python | Local GGUF model (Phi-3) |
 | Caching | Redis (redis-py) | `decode_responses=True` |
 | Agent orchestration | LangGraph + LangChain | 3-node directed graph |
 | Config management | pydantic-settings | `.env` file injection |

@@ -1,5 +1,4 @@
 # Backend dependencies
-# WEEK 1
 fastapi
 uvicorn[standard]
 python-dotenv
@@ -15,8 +14,6 @@ passlib[argon2]
 argon2-cffi
 pytest
 httpx
-
-# WEEK 2
 pymupdf
 sentence-transformers
 # transformers
@@ -32,7 +29,6 @@ scikit-learn
 # sentencepiece
 
 # experimental for changing the LLm inference
-llama-cpp-python
 groq
 redis
 langgraph

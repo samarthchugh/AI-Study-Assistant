@@ -29,7 +29,6 @@ FastAPI backend for an AI-powered study and revision agent. Combines a RAG-based
 | Embeddings | sentence-transformers (`all-MiniLM-L6-v2`, 384-dim) |
 | Vector store | FAISS (`IndexFlatIP`) |
 | LLM (primary) | Groq API (`llama-3.1-8b-instant`) |
-| LLM (fallback) | llama-cpp-python (local GGUF model) |
 | Cache / signals | Redis |
 | Agent orchestration | LangGraph |
 | Config management | pydantic-settings |

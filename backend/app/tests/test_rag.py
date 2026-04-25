@@ -1,53 +1,60 @@
-# backend/tests/test_rag.py
-
-from app.rag.retriever import Retriever
-from app.services.vector_store import FAISSVectorStore
-from app.rag.embeddings import embed_text
+"""Tests for POST /rag/ask and POST /rag/ask-stream."""
+from unittest.mock import patch
 
 
-def run_retriever_test():
-    """
-    CLI-style retriever validation.
-    Assumes FAISS index + metadata already exist on disk.
-    """
-
-    # 1️⃣ Infer embedding dimension safely (SOURCE OF TRUTH = data)
-    dummy_embedding = embed_text(["embedding_dim_probe"])
-    embedding_dim = dummy_embedding.shape[1]
-
-    # 2️⃣ Load FAISS vector store (auto-loads index + metadata)
-    vector_store = FAISSVectorStore(
-        embedding_dim=embedding_dim
-    )
-
-    # 3️⃣ Initialize retriever
-    retriever = Retriever(
-        vector_store=vector_store,
-        top_k=5,
-        score_threshold=0.1,
-        max_context_chars=4000
-    )
-
-    print("\nRetriever test started. Type 'exit' to quit.")
-
-    # 4️⃣ Interactive CLI loop
-    while True:
-        query = input("\nAsk a question: ").strip()
-        if query.lower() == "exit":
-            break
-
-        results = retriever.retrieve(query)
-
-        print(f"\nRetrieved {len(results)} chunks\n")
-
-        for i, chunk in enumerate(results, start=1):
-            print(f"#{i}")
-            print(f"Score   : {chunk['score']:.3f}")
-            print(f"Source  : {chunk['metadata'].get('source')}")
-            print("Text    :")
-            print(chunk["text"][:300])
-            print("-" * 70)
+_MOCK_ANSWER = {
+    "answer": "Deep learning is a subset of machine learning using neural networks.",
+    "sources": ["lecture_notes.pdf"],
+    "confidence": 0.92,
+}
 
 
-if __name__ == "__main__":
-    run_retriever_test()
+# ── Auth guards ───────────────────────────────────────────────────────────────
+
+def test_ask_unauthenticated(client):
+    res = client.post("/rag/ask", json={"question": "What is deep learning?"})
+    assert res.status_code == 401
+
+
+def test_ask_stream_unauthenticated(client):
+    res = client.post("/rag/ask-stream", json={"question": "What is deep learning?"})
+    assert res.status_code == 401
+
+
+# ── Authenticated ─────────────────────────────────────────────────────────────
+
+def test_ask_success(client, auth_headers):
+    with patch("app.api.v1.rag.pipeline") as mock_pipeline:
+        mock_pipeline.answer_query.return_value = _MOCK_ANSWER
+        res = client.post(
+            "/rag/ask",
+            json={"question": "What is deep learning?"},
+            headers=auth_headers,
+        )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["answer"] == _MOCK_ANSWER["answer"]
+    assert data["sources"] == _MOCK_ANSWER["sources"]
+    assert data["confidence"] == _MOCK_ANSWER["confidence"]
+
+
+def test_ask_empty_question_rejected(client, auth_headers):
+    res = client.post("/rag/ask", json={"question": ""}, headers=auth_headers)
+    assert res.status_code == 422
+
+
+def test_ask_missing_question_rejected(client, auth_headers):
+    res = client.post("/rag/ask", json={}, headers=auth_headers)
+    assert res.status_code == 422
+
+
+def test_ask_pipeline_error_returns_500(client, auth_headers):
+    with patch("app.api.v1.rag.pipeline") as mock_pipeline:
+        mock_pipeline.answer_query.side_effect = RuntimeError("FAISS index not loaded")
+        res = client.post(
+            "/rag/ask",
+            json={"question": "What is ML?"},
+            headers=auth_headers,
+        )
+    assert res.status_code == 500

@@ -100,56 +100,60 @@ def ingest_pdf_to_vectorstore(
     Full Ingestion Pipeline
     PDF -> pages -> chunks -> embeddings -> FAISS
     """
-    # 1. Load PDF
-    pages = load_pdf(pdf_path)
-    
-    # 2. Create document ID (One-per Document)
-    doc_id = str(uuid.uuid4())
-    
-    # 3. Chunk pages
-    chunks = create_chunks(pages, doc_id=doc_id)
-    if not chunks:
-        logger.warning("No chunks created from the PDF.")
-        return
-    
-    # 4. Prepare text + metadata
-    texts = []
-    metadatas = []
-    
-    for i,chunk in enumerate(chunks):
-        texts.append(chunk['text'])
-        metadatas.append({
-            "chunk_id": chunk['chunk_id'],
-            "doc_id": chunk['doc_id'],
-            "chunk_index": i,
-            "page": chunk['page'],
-            "source": source,
-            "created_at": datetime.utcnow().isoformat(),
-            
-            # placeholder 
-            "user_id": user_id,
-            "topic": normalize_topic(topic),
-            "subtopic": None,
-            "difficulty": None,
-            
-            # required for retrivel
-            "text": chunk['text'],      
-        })
+    try:
+        # 1. Load PDF
+        pages = load_pdf(pdf_path)
         
-    # 5. Embed chunks
-    embeddings = embed_text(texts)
-    
-    # 6. store in vector store
-    vector_store.add(embeddings, metadatas)
-    vector_store.save()
-    logger.info(
-        "PDF ingestion and vector store update completed",
-        extra={
-            "pdf_path": pdf_path,
-            "num_chunks": len(chunks),
-            "doc_id": doc_id
-        }
-    )
+        # 2. Create document ID (One-per Document)
+        doc_id = str(uuid.uuid4())
+        
+        # 3. Chunk pages
+        chunks = create_chunks(pages, doc_id=doc_id)
+        if not chunks:
+            logger.warning("No chunks created from the PDF.")
+            return
+        
+        # 4. Prepare text + metadata
+        texts = []
+        metadatas = []
+        
+        for i,chunk in enumerate(chunks):
+            texts.append(chunk['text'])
+            metadatas.append({
+                "chunk_id": chunk['chunk_id'],
+                "doc_id": chunk['doc_id'],
+                "chunk_index": i,
+                "page": chunk['page'],
+                "source": source,
+                "created_at": datetime.utcnow().isoformat(),
+                
+                # placeholder 
+                "user_id": user_id,
+                "topic": normalize_topic(topic),
+                "subtopic": None,
+                "difficulty": None,
+                
+                # required for retrivel
+                "text": chunk['text'],      
+            })
+            
+        # 5. Embed chunks
+        embeddings = embed_text(texts)
+        
+        # 6. store in vector store
+        vector_store.add(embeddings, metadatas)
+        vector_store.save()
+        logger.info(
+            "PDF ingestion and vector store update completed",
+            extra={
+                "pdf_path": pdf_path,
+                "num_chunks": len(chunks),
+                "doc_id": doc_id
+            }
+        )
+    except PDFIngestionError as e:
+        logger.error(f"PDF ingestion error: {e}")
+        
     
 # if __name__ == "__main__":
 #     # Simple test
