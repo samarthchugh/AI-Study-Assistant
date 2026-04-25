@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 Base = declarative_base()
 
 class User(Base):
+    """Registered user account. Supports local email/password auth."""
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True)
@@ -17,6 +18,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
     
 class Quiz(Base):
+    """A generated quiz tied to a user and topic. difficulty_level is 1–5."""
     __tablename__ = "quizzes"
     
     id = Column(Integer, primary_key=True,index=True)
@@ -42,6 +44,7 @@ class Quiz(Base):
     attempts = relationship("QuizAttempt", back_populates="quiz", cascade="all, delete-orphan")
     
 class Question(Base):
+    """Individual question inside a quiz. type is 'mcq' or 'short'; options is JSONB for MCQ choices."""
     __tablename__ = "questions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -67,6 +70,7 @@ class Question(Base):
     question_attempts = relationship("QuestionAttempt", back_populates="question")
     
 class QuizAttempt(Base):
+    """One attempt at a quiz by a user. score_ratio is correct/total (0–1)."""
     __tablename__ = "quiz_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -89,6 +93,7 @@ class QuizAttempt(Base):
     Index("idx_quiz_user", "quiz_id", "user_id")
     
 class QuestionAttempt(Base):
+    """Per-question result within a QuizAttempt. is_correct is 0 or 1; score is partial credit."""
     __tablename__ = "question_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -109,6 +114,7 @@ class QuestionAttempt(Base):
     
 
 class UserTopicProgress(Base):
+    """Tracks a user's mastery and difficulty progression per topic. One row per (user, topic) pair."""
     __tablename__ = "user_topic_progress"
 
     id = Column(Integer, primary_key=True, index=True)

@@ -14,6 +14,7 @@ router = APIRouter(prefix = "/analytics", tags = ["ANALYTICS"])
 
 @router.get("/weak-topics")
 def weak_topics(db: Session = Depends(get_db), current_user: int = Depends(get_current_user)):
+    """Return the user's top 5 weakest topics ranked by inverse confidence score."""
     service = IntelligenceService()
     
     try:
@@ -30,6 +31,7 @@ def weak_topics(db: Session = Depends(get_db), current_user: int = Depends(get_c
 
 @router.get("/confidence")
 def topic_confidence(topic: str, db: Session = Depends(get_db), current_user: int = Depends(get_current_user)):
+    """Return the stored confidence score (0–1) for a specific topic. Returns 0.0 if no attempts exist."""
     service = IntelligenceService()
     
     try:
@@ -52,6 +54,7 @@ def topic_confidence(topic: str, db: Session = Depends(get_db), current_user: in
     
 @router.get("/all-topics")
 def get_all_topics(db: Session = Depends(get_db), current_user: int = Depends(get_current_user)):
+    """Return all topics the user has uploaded documents for (stored as a Redis set)."""
     try:
         logger.info(f"Fetching all topics for user_id: {current_user}")
 
@@ -68,6 +71,7 @@ def get_all_topics(db: Session = Depends(get_db), current_user: int = Depends(ge
 
 @router.get("/overview")
 def analytics_overview(db: Session = Depends(get_db), current_user: int = Depends(get_current_user)):
+    """Return a combined snapshot: all topics, top weak topics, and a confidence score per topic."""
     service = IntelligenceService()
     user_id = int(current_user)
     
@@ -109,6 +113,7 @@ def recommend_topic(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(get_current_user)
 ):
+    """Recommend the weakest topic to study next. Returns no_content status if the user has no topics yet."""
     intelligence = IntelligenceService()
     try:
         logger.info(f"Recommending topic for user_id: {current_user_id}")
@@ -134,6 +139,7 @@ def get_revision_topics(
     current_user_id: int = Depends(get_current_user),
     top_k: int = 3
 ):
+    """Return topics due for revision ordered by urgency, based on time elapsed and confidence decay."""
     intelligence = IntelligenceService()
     try:
         logger.info(f"Fetching revision topics for user_id: {current_user_id}")
@@ -152,6 +158,7 @@ def recommend_smart(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(get_current_user)
 ):
+    """Recommend the best topic using a combined weakness + forgetting score (60/40 weighting)."""
     intelligence = IntelligenceService()
     try:
         logger.info(f"Fetching smart recommendation for user_id: {current_user_id}")
@@ -173,6 +180,7 @@ def recommend_smart(
     
 @router.get("/weekly-plan")
 def weekly_plan(current_user: int = Depends(get_current_user)):
+    """Run the full LangGraph agent pipeline (analyze → plan → schedule → enhance) and return a weekly schedule."""
     try:
         result = app_graph.invoke({
             "user_id": int(current_user)

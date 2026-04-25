@@ -16,6 +16,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=UserResponse)
 def signup(user_create: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user. Returns 400 if the email is already taken."""
     user = db.query(User).filter(User.email == user_create.email).first()
     if user:
         raise HTTPException(status_code=400, detail="Email already registered")        
@@ -28,6 +29,7 @@ def signup(user_create: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/token", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Authenticate with email + password and return a bearer JWT. Returns 401 on bad credentials."""
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")

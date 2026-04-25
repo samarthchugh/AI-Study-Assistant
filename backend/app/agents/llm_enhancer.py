@@ -8,6 +8,7 @@ class LLMEnhance:
     Enhances schedule with human-like study instructions.
     """
     def enhance(self, schedule: list):
+        """Call the LLM for each schedule item to add a practical 1–2 line study instruction."""
         enhanced_schedule = []
         
         for item in schedule:

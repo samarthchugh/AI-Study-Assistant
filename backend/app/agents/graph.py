@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 
 # Define state
 class AgentState(TypedDict):
+    """Shared state passed between LangGraph nodes. Populated incrementally as the graph executes."""
     user_id: int
     analysis: dict
     plan: list
@@ -24,18 +25,22 @@ enhancer = LLMEnhance()
 
 # Nodes
 def analyze_node(state: AgentState):
+    """Node 1: Read user learning data from Redis and populate state['analysis']."""
     state['analysis'] = analyzer.run(state['user_id'])
     return state
 
 def plan_node(state: AgentState):
+    """Node 2: Convert analysis into a prioritised study plan and populate state['plan']."""
     state['plan'] = planner.run(state['analysis'])
     return state
 
 def schedule_node(state: AgentState):
+    """Node 3: Assign plan items to specific days and populate state['schedule']."""
     state['schedule'] = scheduler.generate_weekly_schedule(state["plan"])
     return state
 
 def enhance_node(state: AgentState):
+    """Node 4: Enrich each schedule item with an LLM-generated study instruction."""
     state['schedule'] = enhancer.enhance(state['schedule'])
     return state
     

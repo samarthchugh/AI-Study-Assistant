@@ -8,12 +8,17 @@ from app.utils.topic_utils import normalize_topic
 logger = get_logger(__name__)   
 
 class IntelligenceService:
-    
+    """
+    Tracks per-user learning state in Redis and drives adaptive recommendations.
+    Stores attempt history, confidence scores, and weak-topic rankings.
+    """
+
     def __init__(self):
         self.redis = redis_client
         self.max_attempts = 20 
         
     def _attempts_key(self, user_id: int, topic: str) -> str:
+        """Return the Redis list key used to store attempt history for a user/topic pair."""
         return f"user:{user_id}:topic:{topic}:attempts"
     
     def _record_attempt(
@@ -160,6 +165,11 @@ class IntelligenceService:
         difficulty: int,
         mastery_score: float
     ):
+        """
+        Full pipeline run after a quiz submission: record attempt, compute confidence,
+        persist it to Redis, and update the weak-topics ranking.
+        Returns the computed confidence score (0–1).
+        """
         try:
             topic = normalize_topic(topic)
             # 1. Store attempt
@@ -190,11 +200,13 @@ class IntelligenceService:
             return 0.0
         
     def _get_confidence(self, user_id: int, topic: str):
+        """Read the stored confidence score for a user/topic from Redis. Returns 0.0 if not set."""
         key = f"user:{user_id}:topic:{topic}:confidence"
         value = self.redis.get(key)
         return float(value) if value else 0.0
         
     def _get_weak_topics(self, user_id: int, top_k: int = 5):
+        """Return the top_k weakest topics from the Redis ZSET, ordered by weakness score descending."""
         try:
             key = f"user:{user_id}:weak_topics"
             results = self.redis.zrevrange(key, 0, top_k - 1, withscores=True)
@@ -264,6 +276,7 @@ class IntelligenceService:
             return 0.0
         
     def _get_last_attempt_time(self, user_id: int, topic: str):
+        """Return the Unix timestamp of the most recent attempt for a user/topic, or None if none exist."""
         try:
             attempts = self._get_recent_attempts(user_id, topic)
             if not attempts:

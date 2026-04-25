@@ -7,6 +7,11 @@ class PlannerAgent:
     Converts analysis -> actionable study plan
     """
     def run(self, analysis: dict):
+        """
+        Build an ordered study plan from analysis data.
+        Revision topics (forgotten) get high priority; weak topics get medium priority.
+        Deduplicates topics so each appears only once.
+        """
         try:
             logger.info("Running PlannerAgent with analysis data")
             weak_topics =analysis.get("weak_topics", [])

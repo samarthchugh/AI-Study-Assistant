@@ -7,6 +7,7 @@ LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 def get_logger(name: str) -> logging.Logger:
+    """Return a logger with console + rotating file handlers. Safe to call multiple times — handlers are not duplicated."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     

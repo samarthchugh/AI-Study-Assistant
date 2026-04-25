@@ -31,8 +31,8 @@ def generate_completion(
     # temperature: float = TEMPERATURE
 ) -> str:
     """
-    Generate response using OLLAMA (Mistral).
-    Includes retry for ribustness
+    Generate a text completion via Groq. Retries up to MAX_RETRIES times for robustness.
+    Returns an empty string if all attempts fail.
     """
 
     if not prompt or not prompt.strip():
@@ -126,8 +126,8 @@ def _extract_json(text:str):
 
 def generate_json_completion(prompt: str) -> dict:
     """
-    Gennerate LLM Output and safely parse json.
-    Raises ValueError if parsing fails.
+    Generate an LLM completion and parse the output as JSON.
+    Raises ValueError if the output is empty or cannot be parsed.
     """
         
     raw_output = generate_completion(prompt)

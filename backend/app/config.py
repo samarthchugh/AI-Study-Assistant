@@ -29,9 +29,11 @@ class Settings(BaseSettings):
     GROQ_MODEL_NAME: str = "llama-3.1-8b-instant"
     
     # Redis
-    REDIS_HOST: str 
-    REDIS_PORT: int 
-    REDIS_DB: int 
+    # TODO (Docker): change REDIS_HOST in .env from "localhost" to "study_redis"
+    #   (the container name defined in infra/docker-compose.yaml)
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_DB: int
     
     @property
     def FAISS_DIR(self) -> Path:

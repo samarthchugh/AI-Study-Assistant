@@ -10,6 +10,7 @@ class AnalyzerAgent:
     """
     
     def run(self, user_id: int):
+        """Fetch weak topics, revision topics, and a smart recommendation for the user from Redis."""
         intelligence = IntelligenceService()
         
         try:

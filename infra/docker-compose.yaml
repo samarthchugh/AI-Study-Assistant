@@ -13,9 +13,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: study_redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-net
 
   api:
     build: ../backend
@@ -26,10 +38,32 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ../backend:/app
-      - ../backend/faiss_data:/data
+      - faiss_data:/app/faiss_data
+    networks:
+      - app-net
+
+  frontend:
+    build: ../frontend
+    container_name: study_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - app-net
 
 volumes:
   postgres_data:
+  faiss_data:
+
+networks:
+  app-net:
+    driver: bridge

@@ -27,6 +27,7 @@ def generate_quiz(
     current_user_id: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """Generate a new quiz via the QuizEngine (LLM-backed). Difficulty is inferred from user history if omitted."""
     try:
         logger.info(f"Quiz Generation Started...")
         engine = QuizEngine(db)
@@ -111,6 +112,7 @@ def get_quiz(
     db: Session = Depends(get_db),
     current_user_id: str = Depends(get_current_user)
 ):
+    """Return quiz details and all questions (without correct answers) for the authenticated user."""
     try:
         logger.info(f"Fetching quiz details for quiz_id: {quiz_id}, user_id: {current_user_id}")
         quiz = (
@@ -151,6 +153,7 @@ def submit_quiz(
     db: Session = Depends(get_db),
     current_user: int = Depends(get_current_user)
 ):
+    """Grade submitted answers, update mastery/difficulty, and persist results via QuizEngine."""
     try:
         logger.info(f"Submitting quiz for quiz_id: {quiz_id}, user_id: {current_user}, attempt_id: {attempt_id}")
         engine = QuizEngine(db)
@@ -174,6 +177,7 @@ def start_quiz(
     db: Session = Depends(get_db),
     current_user_id: str = Depends(get_current_user)
 ):
+    """Create a QuizAttempt row and return the attempt_id and start_time. Returns 400 if quiz not found."""
     engine = QuizEngine(db)
     
     try:

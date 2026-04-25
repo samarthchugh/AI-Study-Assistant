@@ -9,6 +9,7 @@ class Scheduler:
     """
     
     def generate_weekly_schedule(self, plan: list):
+        """Map each plan item to a calendar day starting from today, one item per day."""
         try:
             logger.info("Generating weekly schedule from plan")
             today = datetime.now()

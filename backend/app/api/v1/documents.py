@@ -20,6 +20,10 @@ def upload_document(
     file: UploadFile = File(...),
     current_user_id: str = Depends(get_current_user)
 ):
+    """
+    Accept a PDF upload, ingest it into the FAISS vector store, and register the topic in Redis.
+    Only PDF files are accepted; returns 400 for any other file type.
+    """
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
