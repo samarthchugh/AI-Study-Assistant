@@ -17,6 +17,7 @@ import {
   Target,
   Calendar,
   LayoutDashboard,
+  LogOut,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -100,7 +101,7 @@ const trust = [
 ];
 
 export default function HomePage() {
-  const { token, isLoading } = useAuth();
+  const { token, isLoading, logout } = useAuth();
 
   if (isLoading) return null;
 
@@ -133,12 +134,20 @@ export default function HomePage() {
           <div className="flex items-center gap-1.5">
             <ThemeToggle />
             {isLoggedIn ? (
-              <Link
-                href="/dashboard"
-                className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
-              >
-                Go to Dashboard <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
+              <>
+                <Link
+                  href="/dashboard"
+                  className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}
+                >
+                  Go to Dashboard <ChevronRight className="h-3.5 w-3.5" />
+                </Link>
+                <button
+                  onClick={logout}
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "gap-1.5 text-muted-foreground hover:text-destructive")}
+                >
+                  <LogOut className="h-3.5 w-3.5" /> Sign out
+                </button>
+              </>
             ) : (
               <>
                 <Link

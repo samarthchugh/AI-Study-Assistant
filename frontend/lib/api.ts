@@ -205,6 +205,7 @@ export interface ScheduleItem {
   topic: string;
   task: "revise" | "practice";
   priority: "high" | "medium" | "low";
+  instruction?: string;
 }
 
 export const analytics = {

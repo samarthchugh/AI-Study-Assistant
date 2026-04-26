@@ -306,6 +306,11 @@ export default function AnalyticsPage() {
                       <div className="flex-1">
                         <p className="font-medium capitalize">{item.topic}</p>
                         <p className="text-sm text-muted-foreground capitalize">{item.task}</p>
+                        {item.instruction && (
+                          <p className="text-xs mt-2 px-2 py-1 rounded-md bg-primary/8 text-primary font-medium leading-relaxed border-l-2 border-primary/40">
+                            {item.instruction}
+                          </p>
+                        )}
                       </div>
                       <Badge className={PRIORITY_COLOR[item.priority]} variant="outline">
                         {item.priority}
