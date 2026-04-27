@@ -36,11 +36,20 @@ def ask_question(request: AskRequest, user_id: str = Depends(get_current_user)):
 
 @router.post("/ask-stream")
 def ask_stream(request: AskRequest, user_id: str = Depends(get_current_user)):
-    """Stream the RAG answer as Server-Sent Events."""
+    """Stream the RAG answer as Server-Sent Events.
+
+    Protocol:
+      data: "<text chunk>"   — streaming answer tokens
+      data: [SOURCES]{...}  — source passages after stream ends
+      data: [DONE]          — signals end of stream
+    """
     def event_generator():
         try:
-            for chunk in pipeline.stream_query(request.question, int(user_id)):
-                yield f"data: {json.dumps(chunk)}\n\n"
+            for item in pipeline.stream_query(request.question, int(user_id)):
+                if isinstance(item, dict):
+                    yield f"data: [SOURCES]{json.dumps(item)}\n\n"
+                else:
+                    yield f"data: {json.dumps(item)}\n\n"
         except Exception:
             logger.exception("RAG streaming failed")
         yield "data: [DONE]\n\n"

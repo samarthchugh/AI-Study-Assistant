@@ -293,6 +293,10 @@ The project successfully demonstrates the design and implementation of an intell
 8. Testing
 9. Conclusion
 10. References
+11. Appendix — Source Code Modules
+    - Appendix A: graph.py (LangGraph Agent Pipeline)
+    - Appendix B: intelligence_service.py (Confidence Scoring & Weak Topic Detection)
+    - Appendix C: quiz_engine.py (Quiz Generation, Grading & Adaptive Difficulty)
 
 ---
 
@@ -2262,6 +2266,648 @@ The system successfully implements:
 4. **Mobile application integration**: Build a React Native companion app so students can revise on mobile devices with offline quiz caching via service workers.
 5. **Multi-format document support**: Extend the ingestion pipeline to handle `.docx`, `.pptx`, and scanned PDFs (OCR via Tesseract).
 6. **Collaborative features**: Allow teachers to create shared topic libraries and assign quizzes to groups of students.
+
+---
+
+# APPENDIX: SOURCE CODE MODULES
+
+This appendix contains the complete source code of three core backend modules that implement the primary intelligent features of SmartLearn-AI.
+
+---
+
+## Appendix A — `backend/app/agents/graph.py`
+### LangGraph Agent Pipeline
+
+This module defines the 4-node LangGraph pipeline that generates the personalised weekly study plan. It wires together the AnalyzerAgent, PlannerAgent, Scheduler, and LLMEnhancer into a directed graph compiled for execution.
+
+```python
+from langgraph.graph import StateGraph
+from typing import TypedDict
+
+from app.agents.analyzer_agent import AnalyzerAgent
+from app.agents.planner_agent import PlannerAgent
+from app.agents.scheduler import Scheduler
+from app.agents.llm_enhancer import LLMEnhance
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
+# Define state
+class AgentState(TypedDict):
+    """Shared state passed between LangGraph nodes. Populated incrementally as the graph executes."""
+    user_id: int
+    analysis: dict
+    plan: list
+    schedule: list
+
+# Initialize agents
+analyzer = AnalyzerAgent()
+planner = PlannerAgent()
+scheduler = Scheduler()
+enhancer = LLMEnhance()
+
+# Nodes
+def analyze_node(state: AgentState):
+    """Node 1: Read user learning data from Redis and populate state['analysis']."""
+    state['analysis'] = analyzer.run(state['user_id'])
+    return state
+
+def plan_node(state: AgentState):
+    """Node 2: Convert analysis into a prioritised study plan and populate state['plan']."""
+    state['plan'] = planner.run(state['analysis'])
+    return state
+
+def schedule_node(state: AgentState):
+    """Node 3: Assign plan items to specific days and populate state['schedule']."""
+    state['schedule'] = scheduler.generate_weekly_schedule(state["plan"])
+    return state
+
+def enhance_node(state: AgentState):
+    """Node 4: Enrich each schedule item with an LLM-generated study instruction."""
+    state['schedule'] = enhancer.enhance(state['schedule'])
+    return state
+
+# Build graph
+graph = StateGraph(AgentState)
+
+graph.add_node("analyze", analyze_node)
+graph.add_node("plan", plan_node)
+graph.add_node("enhance", enhance_node)
+graph.add_node("schedule", schedule_node)
+
+graph.set_entry_point("analyze")
+graph.add_edge("analyze", "plan")
+graph.add_edge("plan", "schedule")
+graph.add_edge("schedule", "enhance")
+
+app_graph = graph.compile()
+```
+
+---
+
+## Appendix B — `backend/app/services/intelligence_service.py`
+### Confidence Scoring, Forgetting Curve & Weak Topic Detection
+
+This module implements the adaptive intelligence layer. It records quiz attempts in Redis, computes recency-weighted confidence scores using exponential decay, applies the Ebbinghaus forgetting curve to flag revision topics, and maintains a sorted-set ranking of weak topics per user.
+
+```python
+import json
+import time
+import math
+from app.config import redis_client
+from app.utils.logging import get_logger
+from app.utils.topic_utils import normalize_topic
+
+logger = get_logger(__name__)
+
+class IntelligenceService:
+    """
+    Tracks per-user learning state in Redis and drives adaptive recommendations.
+    Stores attempt history, confidence scores, and weak-topic rankings.
+    """
+
+    def __init__(self):
+        self.redis = redis_client
+        self.max_attempts = 20
+
+    def _attempts_key(self, user_id: int, topic: str) -> str:
+        """Return the Redis list key used to store attempt history for a user/topic pair."""
+        return f"user:{user_id}:topic:{topic}:attempts"
+
+    def _record_attempt(self, user_id: int, topic: str, score_ratio: float,
+                        time_taken: int, difficulty: int):
+        """Store a quiz attempt in Redis for recency tracking and adaptive learning."""
+        try:
+            key = self._attempts_key(user_id, topic)
+            attempt_data = {
+                "score_ratio": score_ratio,
+                "time_taken": time_taken,
+                "difficulty": difficulty,
+                "timestamp": int(time.time())
+            }
+            self.redis.lpush(key, json.dumps(attempt_data))
+            self.redis.ltrim(key, 0, self.max_attempts - 1)
+            self.redis.expire(key, 60 * 60 * 24 * 7)
+        except Exception as e:
+            logger.error(f"Error recording attempt for user {user_id}, topic {topic}: {e}")
+
+    def _get_recent_attempts(self, user_id: int, topic: str):
+        """Fetch and parse recent attempts from Redis. Returns a list of dicts."""
+        try:
+            key = self._attempts_key(user_id, topic)
+            attempts_raw = self.redis.lrange(key, 0, -1)
+            attempts = []
+            for item in attempts_raw:
+                try:
+                    attempts.append(json.loads(item))
+                except json.JSONDecodeError:
+                    logger.warning(f"Corrupted attempt data for user {user_id}, topic {topic}")
+            return attempts
+        except Exception as e:
+            logger.error(f"Error fetching attempts for user {user_id}, topic {topic}: {e}")
+            return []
+
+    def _compute_recency_score(self, attempts: list, lambda_decay: float = 0.3) -> float:
+        """
+        Compute a recency-weighted score based on past attempts.
+        weight_i = exp(-lambda * i), where i=0 is the most recent attempt.
+        """
+        try:
+            if not attempts:
+                return 0.0
+            weighted_sum = 0.0
+            weight_total = 0.0
+            for i, attempt in enumerate(attempts):
+                score = attempt.get("score_ratio", 0.0)
+                weight = math.exp(-lambda_decay * i)
+                weighted_sum += score * weight
+                weight_total += weight
+            return weighted_sum / weight_total if weight_total else 0.0
+        except Exception as e:
+            logger.error(f"Error computing recency score: {e}")
+            return 0.0
+
+    def _compute_confidence(self, recency_score: float, master_score: float,
+                            alpha: float = 0.7):
+        """
+        Combine recency score and mastery score to compute overall confidence.
+        confidence = alpha * recency_score + (1 - alpha) * master_score
+        """
+        try:
+            recency_score = max(0.0, min(1.0, recency_score))
+            master_score = max(0.0, min(1.0, master_score))
+            return round((alpha * recency_score) + ((1 - alpha) * master_score), 4)
+        except Exception as e:
+            logger.error(f"Error computing confidence: {e}")
+            return 0.0
+
+    def _update_weak_topics(self, user_id: int, topic: str, confidence: float):
+        """Update weak topic ranking in Redis ZSET. weakness_score = 1 - confidence."""
+        try:
+            key = f"user:{user_id}:weak_topics"
+            weakness_score = 1.0 - confidence
+            self.redis.zadd(key, {topic: weakness_score})
+        except Exception as e:
+            logger.error(f"Error updating weak topics for user {user_id}, topic {topic}: {e}")
+
+    def process_attempt(self, user_id: int, topic: str, score_ratio: float,
+                        time_taken: int, difficulty: int, mastery_score: float):
+        """
+        Full pipeline after a quiz submission:
+        record attempt → compute recency → compute confidence → update weak topics.
+        Returns the computed confidence score (0–1).
+        """
+        try:
+            topic = normalize_topic(topic)
+            self._record_attempt(user_id, topic, score_ratio, time_taken, difficulty)
+            attempts = self._get_recent_attempts(user_id, topic)
+            recency_score = self._compute_recency_score(attempts)
+            confidence = self._compute_confidence(recency_score, mastery_score)
+            self.redis.set(f"user:{user_id}:topic:{topic}:confidence", confidence)
+            self._update_weak_topics(user_id, topic, confidence)
+            return confidence
+        except Exception as e:
+            logger.error(f"Error processing attempt for user {user_id}, topic {topic}: {e}")
+            return 0.0
+
+    def _get_confidence(self, user_id: int, topic: str):
+        """Read the stored confidence score for a user/topic from Redis. Returns 0.0 if not set."""
+        value = self.redis.get(f"user:{user_id}:topic:{topic}:confidence")
+        return float(value) if value else 0.0
+
+    def _get_weak_topics(self, user_id: int, top_k: int = 5):
+        """Return the top_k weakest topics from the Redis ZSET, ordered by weakness score descending."""
+        try:
+            key = f"user:{user_id}:weak_topics"
+            results = self.redis.zrevrange(key, 0, top_k - 1, withscores=True)
+            return [
+                {"topic": topic, "weakness": score, "confidence": 1 - score}
+                for topic, score in results
+            ]
+        except Exception as e:
+            logger.error(f"Unable to fetch weak topics: {e}")
+            return []
+
+    def _compute_forgetting_score(self, last_attempts_ts: int, confidence: float,
+                                   lambda_decay: float = 0.1):
+        """
+        Ebbinghaus forgetting curve:
+        retention = confidence * exp(-lambda * time_gap_hours)
+        Returns retention score in [0, 1].
+        """
+        try:
+            if not last_attempts_ts:
+                return 0.0
+            now = int(time.time())
+            time_gap = (now - last_attempts_ts) / 3600
+            retention = confidence * math.exp(-lambda_decay * time_gap)
+            return max(0.0, min(1.0, retention))
+        except Exception as e:
+            logger.error(f"Error computing forgetting score: {e}")
+            return 0.0
+
+    def get_revision_topics(self, user_id: int, top_k: int = 3):
+        """
+        Return topics that need revision based on the forgetting curve.
+        Only includes topics where the user has attempted at least one quiz.
+        """
+        try:
+            topics = self.redis.smembers(f"user:{user_id}:topics")
+            revision_scores = []
+            for topic in topics:
+                topic = normalize_topic(topic)
+                last_ts = self._get_last_attempt_time(user_id, topic)
+                if last_ts is None:
+                    continue
+                confidence = self._get_confidence(user_id, topic)
+                retention = self._compute_forgetting_score(last_ts, confidence)
+                revision_scores.append({
+                    "topic": topic,
+                    "confidence": confidence,
+                    "retention": retention,
+                    "revision_priority": round(1 - retention, 4)
+                })
+            revision_scores.sort(key=lambda x: x["revision_priority"], reverse=True)
+            return revision_scores[:top_k]
+        except Exception as e:
+            logger.error(f"Error getting revision topics for user {user_id}: {e}")
+            return []
+
+    def recommend_smart_topic(self, user_id: int):
+        """
+        Smart recommendation combining weakness (60%) and forgetting score (40%).
+        combined_score = 0.6 * weakness + 0.4 * forgetting
+        """
+        try:
+            topics = self.redis.smembers(f"user:{user_id}:topics")
+            if not topics:
+                return {"topic": None, "reason": "no_content"}
+            scored_topics = []
+            for topic in topics:
+                topic = normalize_topic(topic)
+                confidence = self._get_confidence(user_id, topic)
+                weakness = 1 - confidence
+                last_ts = self._get_last_attempt_time(user_id, topic)
+                retention = self._compute_forgetting_score(last_ts, confidence)
+                forgetting = 1 - retention
+                score = (0.6 * weakness) + (0.4 * forgetting)
+                scored_topics.append({
+                    "topic": topic,
+                    "confidence": confidence,
+                    "weakness": weakness,
+                    "retention": retention,
+                    "forgetting": forgetting,
+                    "combined_score": round(score, 4)
+                })
+            scored_topics.sort(key=lambda x: x["combined_score"], reverse=True)
+            best = scored_topics[0]
+            return {"topic": best["topic"], "reason": "smart_recommendation", "details": best}
+        except Exception as e:
+            logger.error(f"Error recommending smart topic for user {user_id}: {e}")
+            return {"topic": None, "reason": "error"}
+
+    def _get_last_attempt_time(self, user_id: int, topic: str):
+        """Return the Unix timestamp of the most recent attempt for a user/topic, or None."""
+        try:
+            attempts = self._get_recent_attempts(user_id, topic)
+            if not attempts:
+                return None
+            return attempts[0].get("timestamp")
+        except json.JSONDecodeError:
+            logger.warning(f"Corrupted last attempt data for user {user_id}, topic {topic}")
+            return 0
+```
+
+---
+
+## Appendix C — `backend/app/services/quiz_engine.py`
+### Quiz Generation, Grading & Adaptive Difficulty
+
+This module orchestrates the complete quiz lifecycle — retrieving relevant context via FAISS, generating structured MCQ and short-answer questions through the LLM, normalising and validating LLM output, persisting quizzes to PostgreSQL, grading submissions, and updating the adaptive difficulty and mastery score after each attempt.
+
+```python
+from typing import List, Dict
+from sqlalchemy.orm import Session
+from datetime import datetime, timezone
+
+from app.db import models
+from app.db.crud import get_user_topic_progress
+from app.services.vector_store_instance import vector_store
+from app.rag.retriever import Retriever
+from app.utils.logging import get_logger
+from app.services.llm import generate_json_completion
+from app.services.intelligence_service import IntelligenceService
+from app.utils.topic_utils import normalize_topic
+from app.config import redis_client
+
+logger = get_logger(__name__)
+
+class QuizEngine:
+    """
+    Orchestrates the full quiz lifecycle:
+    - Generate quizzes using RAG (retriever + LLM)
+    - Normalise and validate LLM outputs
+    - Store quizzes and questions in PostgreSQL
+    - Evaluate quiz submissions (MCQ + short answers)
+    - Update adaptive learning signals (mastery_score, difficulty level)
+    """
+    def __init__(self, db: Session):
+        self.db = db
+        self.retriever = Retriever(vector_store=vector_store, top_k=8)
+
+    def _normalize_quiz_payload(self, payload: dict) -> dict:
+        """Normalise LLM output into the expected schema, handling nested or alternate-key structures."""
+        if "questions" in payload:
+            return payload
+        for key, value in payload.items():
+            if isinstance(value, dict) and "questions" in value:
+                return value
+        for alt_key in ["items", "quiz", "data"]:
+            if alt_key in payload:
+                val = payload[alt_key]
+                if isinstance(val, list):
+                    return {"questions": val}
+                if isinstance(val, dict) and "questions" in val:
+                    return val
+        raise ValueError("Invalid LLM output: cannot normalise structure")
+
+    def _fallback_quiz_generation(self, context_chunks, num_questions: int):
+        """Generate a basic fallback quiz from raw context chunks when LLM output fails validation."""
+        questions = []
+        for i, chunk in enumerate(context_chunks[:num_questions]):
+            text = chunk.text.strip()
+            questions.append({
+                "question": f"What is described in the following text?\n{text[:150]}...",
+                "type": "short",
+                "correct_answer": text[:200],
+                "explanation": "Fallback question generated due to LLM output failure."
+            })
+        return {"questions": questions}
+
+    def generate_quiz(self, user_id: int, topic: str = None,
+                      num_questions: int = 5, difficulty: int = None) -> models.Quiz:
+        """
+        Generate a quiz for a topic using RAG + LLM.
+        Flow: retrieve context → generate via LLM → normalise → fallback if needed → persist to DB.
+        """
+        intelligence = IntelligenceService()
+        if topic:
+            topic = normalize_topic(topic)
+        else:
+            recommendation = intelligence.recommend_smart_topic(user_id=user_id)
+            if recommendation['topic']:
+                topic = recommendation['topic']
+            else:
+                topics = redis_client.smembers(f"user:{user_id}:topics")
+                if not topics:
+                    raise ValueError("No topics found. Please upload study material first.")
+                topic = list(topics)[0]
+
+        if not topic or not topic.strip():
+            raise ValueError("Topic must be a non-empty string.")
+
+        progress = get_user_topic_progress(self.db, user_id, topic)
+        if difficulty is None:
+            confidence = intelligence._get_confidence(user_id=user_id, topic=topic)
+            if confidence < 0.4:
+                difficulty = 1
+            elif confidence < 0.7:
+                difficulty = 2
+            else:
+                difficulty = 3
+
+        weak_topics = intelligence._get_weak_topics(user_id, top_k=2)
+        if weak_topics:
+            weak_names = [w["topic"] for w in weak_topics]
+            query = f"{topic} concepts with focus on weak areas: {', '.join(weak_names)}"
+        else:
+            query = f"{topic} concepts, definition, applications, explanations, examples"
+
+        chunks = self.retriever.retrieve(query=query, filters={"topic": topic, "user_id": user_id})
+        if not chunks:
+            raise ValueError(f"No content found for topic: {topic}")
+
+        context_text = "\n\n".join(chunk.text for chunk in chunks)
+        quiz_payload = self._generate_quiz_with_llm(context=context_text,
+                                                     difficulty=difficulty,
+                                                     num_questions=num_questions)
+        try:
+            quiz_payload = self._normalize_quiz_payload(quiz_payload)
+        except Exception:
+            logger.warning("LLM output normalisation failed — activating fallback generator.")
+            quiz_payload = self._fallback_quiz_generation(chunks, num_questions)
+
+        if "questions" not in quiz_payload or not isinstance(quiz_payload["questions"], list):
+            raise ValueError("Invalid LLM output: missing or malformed 'questions' key.")
+        if len(quiz_payload["questions"]) == 0:
+            raise ValueError("LLM returned an empty questions list.")
+
+        try:
+            quiz = models.Quiz(
+                user_id=user_id, topic=topic, difficulty_level=difficulty,
+                total_questions=len(quiz_payload["questions"]),
+                status="active", created_at=datetime.now(timezone.utc)
+            )
+            self.db.add(quiz)
+            self.db.flush()
+            for q in quiz_payload["questions"]:
+                self.db.add(models.Question(
+                    quiz_id=quiz.id,
+                    question_text=q.get("question"),
+                    question_type=q.get("type"),
+                    options=q.get("options"),
+                    correct_answer=q.get("correct_answer"),
+                    explanation=q.get("explanation"),
+                    difficulty_level=difficulty,
+                    created_at=datetime.now(timezone.utc)
+                ))
+            self.db.commit()
+            self.db.refresh(quiz)
+            return quiz
+        except Exception:
+            self.db.rollback()
+            logger.exception("Quiz generation failed.")
+            raise
+
+    def submit_quiz(self, user_id: int, quiz_id: int, submitted_answers: list, attempt_id: int):
+        """
+        Grade a submitted quiz and update adaptive learning state.
+        MCQ: deterministic comparison. Short answer: keyword overlap ratio >= 0.5.
+        Adaptive difficulty: score >= 0.8 → increase, score <= 0.4 → decrease (clamped 1–5).
+        Mastery: running average — (prev_mastery * prev_attempts + score) / (prev_attempts + 1).
+        """
+        try:
+            quiz = self.db.query(models.Quiz).filter(
+                models.Quiz.id == quiz_id, models.Quiz.user_id == user_id).first()
+            attempt = self.db.query(models.QuizAttempt).filter(
+                models.QuizAttempt.id == attempt_id,
+                models.QuizAttempt.user_id == user_id,
+                models.QuizAttempt.quiz_id == quiz_id).first()
+
+            if not quiz or not attempt:
+                raise ValueError("Quiz or attempt not found.")
+            if quiz.status == "completed":
+                raise ValueError("Quiz has already been completed.")
+
+            questions = self.db.query(models.Question).filter(
+                models.Question.quiz_id == quiz_id).all()
+            if not questions:
+                raise ValueError("No questions found for this quiz.")
+
+            question_map = {q.id: q for q in questions}
+            if len(submitted_answers) != len(questions):
+                raise ValueError("Answer count does not match question count.")
+
+            correct_count = 0
+            graded_results = []
+            for item in submitted_answers:
+                question = question_map[item.question_id]
+                user_answer = item.answer.strip()
+                correct_answer = question.correct_answer.strip()
+
+                if question.question_type == "mcq":
+                    is_correct = user_answer.lower() == correct_answer.lower()
+                elif question.question_type == "short":
+                    correct_kw = set(correct_answer.lower().split())
+                    user_words = set(user_answer.lower().split())
+                    overlap_ratio = len(correct_kw & user_words) / len(correct_kw) if correct_kw else 0
+                    is_correct = overlap_ratio >= 0.5
+                else:
+                    is_correct = False
+
+                if is_correct:
+                    correct_count += 1
+                graded_results.append({"question": question, "user_answer": user_answer,
+                                        "is_correct": is_correct})
+
+            score_ratio = correct_count / len(questions)
+            end_time = datetime.now(timezone.utc)
+            time_taken = int((end_time - attempt.start_time).total_seconds()) if attempt.start_time else None
+
+            attempt.submitted_at = end_time
+            attempt.time_taken_seconds = time_taken
+            attempt.score = correct_count
+            attempt.score_ratio = score_ratio
+            attempt.confidence_score = score_ratio
+            attempt.max_score = len(questions)
+
+            for result in graded_results:
+                self.db.add(models.QuestionAttempt(
+                    quiz_attempt_id=attempt.id,
+                    question_id=result["question"].id,
+                    user_answer=result["user_answer"],
+                    is_correct=1 if result["is_correct"] else 0,
+                    score=1.0 if result["is_correct"] else 0.0,
+                    confidence_score=score_ratio,
+                    answered_at=datetime.now(timezone.utc)
+                ))
+
+            progress = get_user_topic_progress(self.db, user_id, quiz.topic)
+            if not progress:
+                progress = models.UserTopicProgress(
+                    user_id=user_id, topic=normalize_topic(quiz.topic),
+                    current_difficulty=quiz.difficulty_level, mastery_score=0.0,
+                    last_attempt_at=None, total_attempts=0, correct_attempts=0,
+                    updated_at=datetime.now(timezone.utc)
+                )
+                self.db.add(progress)
+                self.db.flush()
+
+            previous_mastery = progress.mastery_score
+            previous_attempts = progress.total_attempts
+            new_mastery = ((previous_mastery * previous_attempts) + score_ratio) / (previous_attempts + 1)
+
+            if score_ratio >= 0.8:
+                new_difficulty = min(progress.current_difficulty + 1, 5)
+            elif score_ratio <= 0.4:
+                new_difficulty = max(progress.current_difficulty - 1, 1)
+            else:
+                new_difficulty = progress.current_difficulty
+
+            progress.mastery_score = new_mastery
+            progress.current_difficulty = new_difficulty
+            progress.total_attempts = previous_attempts + 1
+            progress.correct_attempts += correct_count
+            progress.last_attempt_at = datetime.now(timezone.utc)
+            progress.updated_at = datetime.now(timezone.utc)
+            quiz.status = "completed"
+            quiz.completed_at = datetime.now(timezone.utc)
+            self.db.commit()
+
+        except Exception:
+            self.db.rollback()
+            logger.exception("Error processing quiz submission.")
+            raise
+
+        try:
+            IntelligenceService().process_attempt(
+                user_id=user_id, topic=quiz.topic, score_ratio=score_ratio,
+                time_taken=time_taken or 0, difficulty=quiz.difficulty_level,
+                mastery_score=new_mastery
+            )
+        except Exception as e:
+            logger.error(f"Error updating intelligence signals: {e}")
+
+        return {
+            "quiz_id": quiz.id,
+            "score_ratio": round(score_ratio, 3),
+            "correct_answers": correct_count,
+            "total_questions": len(questions),
+            "new_difficulty": new_difficulty,
+            "updated_mastery": round(new_mastery, 3),
+            "time_taken_seconds": time_taken
+        }
+
+    def start_quiz(self, user_id: int, quiz_id: int):
+        """Create a QuizAttempt with a start timestamp and return the attempt_id."""
+        try:
+            quiz = self.db.query(models.Quiz).filter(
+                models.Quiz.id == quiz_id, models.Quiz.user_id == user_id).first()
+            if not quiz:
+                raise ValueError("Quiz not found.")
+            attempt = models.QuizAttempt(
+                quiz_id=quiz.id, user_id=user_id, start_time=datetime.now(timezone.utc))
+            self.db.add(attempt)
+            self.db.commit()
+            self.db.refresh(attempt)
+            return {"attempt_id": attempt.id, "start_time": attempt.start_time}
+        except Exception as e:
+            logger.error(f"Error starting quiz attempt: {e}")
+            raise
+
+    def _generate_quiz_with_llm(self, context: str, difficulty: int, num_questions: int) -> dict:
+        """Build a strict JSON prompt and call the LLM to generate quiz questions."""
+        prompt = f"""
+        You are generating a quiz.
+
+        STRICT RULES:
+        - Output must be valid JSON only.
+        - Do NOT include any text, explanation, or markdown outside JSON.
+
+        FORMAT:
+        {{
+            "questions": [
+                {{
+                    "question": "...?",
+                    "type": "mcq" or "short",
+                    "options": ["A", "B", "C", "D"] (only if type is mcq),
+                    "correct_answer": "...",
+                    "explanation": "..."
+                }}
+            ]
+        }}
+
+        CONSTRAINTS:
+        - Generate exactly {num_questions} questions.
+        - Difficulty level = {difficulty} (1=easy factual, 3=conceptual, 5=reasoning/application)
+        - At least 50% MCQs with exactly 4 options
+        - MCQ correct_answer must be one of: "A", "B", "C", "D"
+
+        Context:
+        {context}
+        """
+        return generate_json_completion(prompt)
+```
 
 ---
 

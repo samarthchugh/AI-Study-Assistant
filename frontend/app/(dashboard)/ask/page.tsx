@@ -1,18 +1,65 @@
 "use client";
 
-import { useState, useRef, useEffect, FormEvent } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Bot, User, Send, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Bot, User, Send, Loader2, ChevronDown, ChevronUp, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+interface Source {
+  text: string;
+  doc_id: string;
+  score: number;
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
+  sources?: Source[];
+  confidence?: number;
+}
+
+function SourcesPanel({ sources, confidence }: { sources: Source[]; confidence: number }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-2 rounded-lg border border-border bg-background/60 text-xs">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <FileText className="h-3.5 w-3.5" />
+          Sources from your PDF
+          <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
+            {Math.round(confidence * 100)}% match
+          </Badge>
+        </span>
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+
+      {open && (
+        <div className="divide-y divide-border border-t border-border">
+          {sources.map((src, i) => (
+            <div key={i} className="px-3 py-2.5 space-y-1">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span className="font-medium truncate max-w-[70%]">{src.doc_id || `Passage ${i + 1}`}</span>
+                <span className="shrink-0">similarity {Math.round(src.score * 100)}%</span>
+              </div>
+              <p className="leading-relaxed text-foreground/80 italic">
+                &ldquo;{src.text}{src.text.length >= 280 ? "…" : ""}&rdquo;
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AskPage() {
@@ -30,7 +77,7 @@ export default function AskPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function handleSend(e: FormEvent) {
+  async function handleSend(e: { preventDefault(): void }) {
     e.preventDefault();
     if (!input.trim() || loading) return;
 
@@ -70,12 +117,31 @@ export default function AskPage() {
           if (!line.startsWith("data: ")) continue;
           const payload = line.slice(6).trim();
           if (payload === "[DONE]") break;
+
+          if (payload.startsWith("[SOURCES]")) {
+            try {
+              const meta = JSON.parse(payload.slice(9));
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  sources: meta.sources,
+                  confidence: meta.confidence,
+                };
+                return updated;
+              });
+            } catch {
+              // skip malformed sources
+            }
+            continue;
+          }
+
           try {
             const text: string = JSON.parse(payload);
             setMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = {
-                role: "assistant",
+                ...updated[updated.length - 1],
                 content: updated[updated.length - 1].content + text,
               };
               return updated;
@@ -89,7 +155,7 @@ export default function AskPage() {
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
-          role: "assistant",
+          ...updated[updated.length - 1],
           content: `Sorry, I couldn't answer that. ${(err as Error).message}`,
         };
         return updated;
@@ -126,17 +192,23 @@ export default function AskPage() {
                 )}
               </div>
 
-              <div
-                className={cn(
-                  "max-w-[80%] rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap",
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground"
-                )}
-              >
-                {msg.content}
-                {loading && i === messages.length - 1 && msg.role === "assistant" && msg.content === "" && (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <div className={cn("max-w-[80%]", msg.role === "user" ? "items-end" : "items-start")}>
+                <div
+                  className={cn(
+                    "rounded-xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap",
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-foreground"
+                  )}
+                >
+                  {msg.content}
+                  {loading && i === messages.length - 1 && msg.role === "assistant" && msg.content === "" && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+
+                {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
+                  <SourcesPanel sources={msg.sources} confidence={msg.confidence ?? 0} />
                 )}
               </div>
             </div>

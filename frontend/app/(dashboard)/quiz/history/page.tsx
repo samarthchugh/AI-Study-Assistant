@@ -80,14 +80,22 @@ function QuizCard({ item }: { item: QuizListItem }) {
         )}
 
         {/* Action button */}
-        <div className="shrink-0">
+        <div className="shrink-0 flex gap-2">
           {item.status === "completed" ? (
-            <Link
-              href={`/quiz?topic=${encodeURIComponent(item.topic)}`}
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-            >
-              Retake
-            </Link>
+            <>
+              <Link
+                href={`/quiz/${item.quiz_id}/review`}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              >
+                Review
+              </Link>
+              <Link
+                href={`/quiz?topic=${encodeURIComponent(item.topic)}`}
+                className={cn(buttonVariants({ size: "sm" }))}
+              >
+                Retake
+              </Link>
+            </>
           ) : (
             <Link
               href={`/quiz/${item.quiz_id}`}

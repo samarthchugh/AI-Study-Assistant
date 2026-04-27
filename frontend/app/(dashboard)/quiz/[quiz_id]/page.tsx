@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { quiz as quizApi, QuizDetail, SubmitResult, AnswerItem } from "@/lib/api";
+import { quiz as quizApi, QuizDetail, SubmitResult, AnswerItem, QuestionResult } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -107,25 +107,33 @@ export default function QuizTakePage({ params }: { params: Promise<{ quiz_id: st
   // ── Results ────────────────────────────────────────────────────────────────
   if (phase === "results" && result) {
     const pct = Math.round(result.score_ratio * 100);
+
+    const OPTION_LABELS_MAP = ["A", "B", "C", "D"];
+    function resolveOptionText(qr: QuestionResult, letter: string): string {
+      if (!qr.options) return letter;
+      const idx = OPTION_LABELS_MAP.indexOf(letter);
+      if (Array.isArray(qr.options)) return qr.options[idx] ?? letter;
+      const dict = qr.options as Record<string, string>;
+      return dict[letter] ?? Object.values(dict)[idx] ?? letter;
+    }
+
     return (
-      <div className="mx-auto max-w-lg space-y-6">
+      <div className="mx-auto max-w-2xl space-y-6">
+        {/* Score card */}
         <Card className="text-center">
           <CardHeader>
             <div className="flex justify-center mb-2">
               <Trophy className={cn("h-12 w-12", pct >= 80 ? "text-yellow-500" : pct >= 50 ? "text-blue-500" : "text-muted-foreground")} />
             </div>
             <CardTitle className="text-3xl">{pct}%</CardTitle>
-            <CardDescription>
-              {result.correct_answers} / {result.total_questions} correct
-            </CardDescription>
+            <CardDescription>{result.correct_answers} / {result.total_questions} correct</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Progress value={pct} className="h-3" />
-
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg bg-muted p-3">
                 <p className="text-muted-foreground">Time taken</p>
-                <p className="font-semibold">{result.time_taken_seconds}s</p>
+                <p className="font-semibold">{result.time_taken_seconds ?? "—"}s</p>
               </div>
               <div className="rounded-lg bg-muted p-3">
                 <p className="text-muted-foreground">New difficulty</p>
@@ -136,19 +144,76 @@ export default function QuizTakePage({ params }: { params: Promise<{ quiz_id: st
                 <p className="font-semibold">{Math.round(result.updated_mastery * 100)}%</p>
               </div>
               <div className="rounded-lg bg-muted p-3">
-                <p className="text-muted-foreground">Score ratio</p>
+                <p className="text-muted-foreground">Score</p>
                 <p className="font-semibold">{result.score_ratio.toFixed(2)}</p>
               </div>
             </div>
-
             <Separator />
-
             <div className="flex flex-col gap-2">
               <Button onClick={() => router.push("/quiz")}>Take Another Quiz</Button>
               <Button variant="outline" onClick={() => router.push("/analytics")}>View Analytics</Button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Per-question breakdown */}
+        <div>
+          <h2 className="text-lg font-semibold mb-3">Question Breakdown</h2>
+          <div className="space-y-3">
+            {result.question_breakdown.map((qr, i) => (
+              <Card key={qr.question_id} className={cn(
+                "border",
+                qr.is_correct ? "border-green-500/40 bg-green-500/5" : "border-red-500/40 bg-red-500/5"
+              )}>
+                <CardContent className="p-4 space-y-3">
+                  {/* Question header */}
+                  <div className="flex items-start gap-2">
+                    {qr.is_correct
+                      ? <CheckCircle className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
+                      : <XCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                    }
+                    <p className="text-sm font-medium leading-snug">
+                      <span className="text-muted-foreground mr-1">Q{i + 1}.</span>
+                      {qr.question_text}
+                    </p>
+                  </div>
+
+                  {/* Answer row */}
+                  <div className="pl-7 space-y-1.5 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground w-28 shrink-0">Your answer:</span>
+                      <span className={cn(
+                        "font-medium",
+                        qr.is_correct ? "text-green-600" : "text-red-600"
+                      )}>
+                        {qr.question_type === "mcq"
+                          ? `${qr.user_answer} — ${resolveOptionText(qr, qr.user_answer)}`
+                          : qr.user_answer}
+                      </span>
+                    </div>
+                    {!qr.is_correct && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground w-28 shrink-0">Correct answer:</span>
+                        <span className="font-medium text-green-600">
+                          {qr.question_type === "mcq"
+                            ? `${qr.correct_answer} — ${resolveOptionText(qr, qr.correct_answer)}`
+                            : qr.correct_answer}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Explanation */}
+                  {qr.explanation && (
+                    <p className="pl-7 text-xs text-muted-foreground leading-relaxed border-l-2 border-border ml-7">
+                      {qr.explanation}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -165,7 +230,7 @@ export default function QuizTakePage({ params }: { params: Promise<{ quiz_id: st
   // Normalise options: LLM may return an array (keys 0,1,2,3) or a dict (keys A,B,C,D).
   // Always produce [{label: "A", text: "..."}, ...] so submission always uses A/B/C/D.
   const options = q?.options
-    ? Object.entries(q.options).map(([key, text], idx) => ({
+    ? Object.entries(q.options).map(([key, text]) => ({
         label: /^\d+$/.test(key) ? (OPTION_LABELS[parseInt(key)] ?? key) : key,
         text: text as string,
       }))

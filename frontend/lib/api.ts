@@ -119,6 +119,17 @@ export interface AnswerItem {
   answer: string;
 }
 
+export interface QuestionResult {
+  question_id: number;
+  question_text: string;
+  question_type: string;
+  options: Record<string, string> | string[] | null;
+  user_answer: string;
+  correct_answer: string;
+  explanation: string | null;
+  is_correct: boolean;
+}
+
 export interface SubmitResult {
   quiz_id: number;
   score_ratio: number;
@@ -126,7 +137,19 @@ export interface SubmitResult {
   total_questions: number;
   new_difficulty: number;
   updated_mastery: number;
-  time_taken_seconds: number;
+  time_taken_seconds: number | null;
+  question_breakdown: QuestionResult[];
+}
+
+export interface ReviewResult {
+  quiz_id: number;
+  topic: string;
+  difficulty: number;
+  score_ratio: number;
+  correct_answers: number;
+  total_questions: number;
+  time_taken_seconds: number | null;
+  question_breakdown: QuestionResult[];
 }
 
 export interface QuizListItem {
@@ -163,6 +186,8 @@ export const quiz = {
     }),
 
   list: () => request<{ quizzes: QuizListItem[] }>("/quiz/my-quizzes"),
+
+  review: (quiz_id: number) => request<ReviewResult>(`/quiz/${quiz_id}/review`),
 };
 
 // ── Analytics ─────────────────────────────────────────────────────────────────

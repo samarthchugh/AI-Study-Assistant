@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.services.quiz_engine import QuizEngine
 from app.dependencies import get_current_user
-from app.db.models import Quiz, User, QuizAttempt
+from app.db.models import Quiz, User, QuizAttempt, QuestionAttempt, Question
 from app.utils.logging import get_logger
 from app.utils.topic_utils import normalize_topic
 
@@ -170,6 +170,65 @@ def submit_quiz(
     except Exception as e:
         logger.error(f"Error submitting quiz for quiz_id: {quiz_id}, user_id: {current_user}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{quiz_id}/review")
+def review_quiz(
+    quiz_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user),
+):
+    """Return the graded question breakdown for the most recent completed attempt."""
+    user_id = int(current_user_id)
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id, Quiz.user_id == user_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+
+    attempt = (
+        db.query(QuizAttempt)
+        .filter(
+            QuizAttempt.quiz_id == quiz_id,
+            QuizAttempt.user_id == user_id,
+            QuizAttempt.submitted_at.isnot(None),
+        )
+        .order_by(QuizAttempt.submitted_at.desc())
+        .first()
+    )
+    if not attempt:
+        raise HTTPException(status_code=404, detail="No completed attempt found for this quiz")
+
+    question_attempts = (
+        db.query(QuestionAttempt)
+        .filter(QuestionAttempt.quiz_attempt_id == attempt.id)
+        .all()
+    )
+    question_map = {q.id: q for q in quiz.questions}
+
+    breakdown = [
+        {
+            "question_id": qa.question_id,
+            "question_text": question_map[qa.question_id].question_text,
+            "question_type": question_map[qa.question_id].question_type,
+            "options": question_map[qa.question_id].options,
+            "user_answer": qa.user_answer,
+            "correct_answer": question_map[qa.question_id].correct_answer,
+            "explanation": question_map[qa.question_id].explanation,
+            "is_correct": bool(qa.is_correct),
+        }
+        for qa in question_attempts
+        if qa.question_id in question_map
+    ]
+
+    return {
+        "quiz_id": quiz_id,
+        "topic": quiz.topic,
+        "difficulty": quiz.difficulty_level,
+        "score_ratio": attempt.score_ratio,
+        "correct_answers": attempt.score,
+        "total_questions": quiz.total_questions,
+        "time_taken_seconds": attempt.time_taken_seconds,
+        "question_breakdown": breakdown,
+    }
+
 
 @router.post("/{quiz_id}/start")
 def start_quiz(

@@ -518,7 +518,20 @@ class QuizEngine:
             "total_questions": total_questions,
             "new_difficulty": new_difficulty,
             "updated_mastery": round(new_mastery, 3),
-            "time_taken_seconds": time_taken
+            "time_taken_seconds": time_taken,
+            "question_breakdown": [
+                {
+                    "question_id": r["question"].id,
+                    "question_text": r["question"].question_text,
+                    "question_type": r["question"].question_type,
+                    "options": r["question"].options,
+                    "user_answer": r["user_answer"],
+                    "correct_answer": r["question"].correct_answer,
+                    "explanation": r["question"].explanation,
+                    "is_correct": r["is_correct"],
+                }
+                for r in graded_results
+            ],
         }
         
     def start_quiz(self, user_id: int, quiz_id: int):

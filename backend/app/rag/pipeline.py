@@ -154,8 +154,8 @@ class QueryAnswerPipeline:
             return self._refusal_answer()
         
     
-    def stream_query(self, question: str, user_id: int) -> Generator[str, None, None]:
-        """Same retrieval as answer_query, but streams LLM output as text chunks."""
+    def stream_query(self, question: str, user_id: int) -> Generator:
+        """Stream LLM output as text chunks, then yield a final dict with source passages."""
         try:
             if not question or not question.strip():
                 yield "Question is empty."
@@ -181,6 +181,36 @@ class QueryAnswerPipeline:
 
             for chunk in generate_completion_stream(prompt):
                 yield chunk
+
+            # After text stream, yield source metadata so UI can show retrieved passages.
+            # Only include chunks above a relevance threshold so unrelated passages are excluded.
+            RELEVANCE_THRESHOLD = 0.35
+            relevant = [c for c in context_chunks if c.score >= RELEVANCE_THRESHOLD]
+            if not relevant:
+                # Fallback: show the single best chunk even if below threshold
+                relevant = sorted(context_chunks, key=lambda c: c.score, reverse=True)[:1]
+
+            # One entry per document — keep the highest-scoring chunk per doc_id
+            best_per_doc: Dict[str, RetrievedChunk] = {}
+            for c in sorted(relevant, key=lambda c: c.score, reverse=True):
+                doc_id = c.metadata.get("doc_id", "unknown")
+                if doc_id not in best_per_doc:
+                    best_per_doc[doc_id] = c
+
+            source_chunks = list(best_per_doc.values())[:3]
+            confidence = round(sum(c.score for c in source_chunks) / len(source_chunks), 3) if source_chunks else 0.0
+
+            yield {
+                "sources": [
+                    {
+                        "text": c.text[:280].strip(),
+                        "doc_id": c.metadata.get("doc_id", ""),
+                        "score": round(c.score, 3),
+                    }
+                    for c in source_chunks
+                ],
+                "confidence": confidence,
+            }
         except Exception as e:
             logger.error(f"Error during streaming query: {e}")
             yield REFUSAL_MESSAGE
