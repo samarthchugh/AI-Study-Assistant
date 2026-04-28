@@ -77,6 +77,20 @@ components:
           type: number
           format: float
 
+    AskStreamSource:
+      type: object
+      description: A single retrieved source passage returned in the [SOURCES] SSE event.
+      properties:
+        topic:
+          type: string
+        text:
+          type: string
+          description: The passage text from the uploaded document
+        similarity:
+          type: number
+          format: float
+          description: Cosine similarity score (0.0–1.0). Only chunks >= 0.35 are included.
+
     # ── Quiz ──────────────────────────────────────────────────────────────────
     AnswerItem:
       type: object
@@ -96,6 +110,101 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AnswerItem'
+
+    QuestionResult:
+      type: object
+      description: Per-question graded result returned in submit and review responses.
+      properties:
+        question_id:
+          type: integer
+        question_text:
+          type: string
+        question_type:
+          type: string
+          enum: [mcq, short]
+        options:
+          description: "MCQ options — either a dict ({\"A\": \"text\",...}) or a list ([\"text\",...]) depending on LLM output. Null for short-answer questions."
+          nullable: true
+          oneOf:
+            - type: object
+              additionalProperties:
+                type: string
+            - type: array
+              items:
+                type: string
+        user_answer:
+          type: string
+        correct_answer:
+          type: string
+        explanation:
+          type: string
+          nullable: true
+        is_correct:
+          type: boolean
+
+    ReviewResult:
+      type: object
+      description: Full graded breakdown for a past completed quiz attempt.
+      properties:
+        quiz_id:
+          type: integer
+        topic:
+          type: string
+        difficulty:
+          type: integer
+          minimum: 1
+          maximum: 5
+        score_ratio:
+          type: number
+          format: float
+        correct_answers:
+          type: number
+          description: Number of correct answers (stored as float from QuizAttempt.score)
+        total_questions:
+          type: integer
+        time_taken_seconds:
+          type: integer
+          nullable: true
+        question_breakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionResult'
+
+    QuizListItem:
+      type: object
+      description: Summary of a quiz with computed status derived from attempt records.
+      properties:
+        quiz_id:
+          type: integer
+        topic:
+          type: string
+        difficulty:
+          type: integer
+          minimum: 1
+          maximum: 5
+        total_questions:
+          type: integer
+        status:
+          type: string
+          enum: [not_started, in_progress, completed]
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        score_ratio:
+          type: number
+          format: float
+          nullable: true
+        time_taken_seconds:
+          type: integer
+          nullable: true
+        attempt_id:
+          type: integer
+          nullable: true
 
     SubmitQuizResponse:
       type: object
@@ -118,6 +227,11 @@ components:
           format: float
         time_taken_seconds:
           type: integer
+          nullable: true
+        question_breakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionResult'
 
     QuestionOption:
       type: object
@@ -212,6 +326,10 @@ components:
         priority:
           type: string
           enum: [high, medium, low]
+        instruction:
+          type: string
+          nullable: true
+          description: Optional LLM-generated instruction for the study task
 
     # ── Errors ────────────────────────────────────────────────────────────────
     HTTPError:
@@ -381,6 +499,7 @@ paths:
       description: |
         Embeds the question, retrieves relevant chunks from FAISS (scoped to the
         authenticated user), and generates an answer via the Groq LLM.
+        Returns a single JSON response (non-streaming).
       requestBody:
         required: true
         content:
@@ -400,6 +519,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPError'
+
+  /rag/ask-stream:
+    post:
+      tags: [RAG]
+      summary: Stream an answer as Server-Sent Events
+      description: |
+        Streams the RAG answer token-by-token using the SSE protocol.
+
+        **SSE event format:**
+        - `data: "<text chunk>"` — a streamed answer token (JSON-encoded string)
+        - `data: [SOURCES]{...}` — emitted once after the last token; payload is
+          `{ "sources": [{ "topic", "text", "similarity" }], "confidence": float }`
+        - `data: [DONE]` — signals end of stream
+
+        **Source filtering:**
+        Only chunks with cosine similarity >= 0.35 are included. Results are
+        deduplicated to one chunk per source document (highest scoring kept).
+        Confidence is the average similarity across the included source chunks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Newline-delimited SSE events as described above
+        '500':
+          description: Pipeline error
 
   # ── Quiz ──────────────────────────────────────────────────────────────────────
   /quiz/generate:
@@ -455,6 +608,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPError'
 
+  /quiz/my-quizzes:
+    get:
+      tags: [Quiz]
+      summary: List all quizzes for the current user
+      description: |
+        Returns all quizzes ordered by creation date (newest first). Status is
+        computed from attempt records:
+        - `completed` — quiz has a submitted attempt
+        - `in_progress` — quiz has a pending (started but not submitted) attempt
+        - `not_started` — no attempt records exist
+      responses:
+        '200':
+          description: List of quizzes with computed status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quizzes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuizListItem'
+
   /quiz/{quiz_id}:
     get:
       tags: [Quiz]
@@ -483,7 +659,7 @@ paths:
     post:
       tags: [Quiz]
       summary: Start a quiz attempt
-      description: Creates a QuizAttempt record and records the start time.
+      description: Creates a QuizAttempt record, records start_time, and returns the attempt_id needed for submission.
       parameters:
         - name: quiz_id
           in: path
@@ -501,6 +677,9 @@ paths:
                   message:
                     type: string
                     example: Quiz started
+                  attempt_id:
+                    type: integer
+                    description: The QuizAttempt ID to pass to /submit
         '400':
           description: Cannot start quiz
           content:
@@ -543,6 +722,34 @@ paths:
                 $ref: '#/components/schemas/SubmitQuizResponse'
         '500':
           description: Submission error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  /quiz/{quiz_id}/review:
+    get:
+      tags: [Quiz]
+      summary: Review the most recent completed attempt for a quiz
+      description: |
+        Fetches the most recently submitted QuizAttempt for this quiz and
+        reconstructs the full per-question graded breakdown from QuestionAttempt
+        records joined with Question data. Returns 404 if no completed attempt exists.
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Graded review of the last completed attempt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResult'
+        '404':
+          description: Quiz not found or no completed attempt
           content:
             application/json:
               schema:

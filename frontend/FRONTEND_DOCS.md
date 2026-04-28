@@ -72,7 +72,9 @@ frontend/
 │   │   ├── quiz/
 │   │   │   ├── page.tsx                # /quiz — quiz generator form
 │   │   │   ├── history/page.tsx        # /quiz/history — past quizzes
-│   │   │   └── [quiz_id]/page.tsx      # /quiz/:id — quiz player
+│   │   │   └── [quiz_id]/
+│   │   │       ├── page.tsx            # /quiz/:id — quiz player + inline results
+│   │   │       └── review/page.tsx     # /quiz/:id/review — standalone review page
 │   │   └── analytics/page.tsx          # /analytics — full analytics view
 │   │
 │   ├── layout.tsx                      # Root layout: ThemeProvider, Toaster, fonts
@@ -261,18 +263,42 @@ async function request<T>(path: string, options?: RequestInit & { auth?: boolean
 interface LoginResponse { access_token: string; token_type: string; }
 
 // Quiz
-interface QuizSummary { quiz_id: number; topic: string; difficulty: number; total_questions: number; }
-interface QuizDetail  { quiz_id: number; topic: string; questions: Question[]; status: string; }
-interface Question    { id: number; question_text: string; question_type: "mcq" | "short"; options?: string[]; difficulty_level: number; }
-interface SubmitResult { score: number; max_score: number; score_ratio: number; correct: number; total: number; }
-interface QuizListItem { id: number; topic: string; status: string; total_questions: number; difficulty_level: number; created_at: string; }
+interface QuizSummary  { quiz_id: number; topic: string; difficulty: number; total_questions: number; }
+interface QuizDetail   { quiz_id: number; topic: string; difficulty: number; total_questions: number; questions: Question[]; }
+interface Question     { question_id: number; question_text: string; options: Record<string, string> | null; }
+
+interface QuestionResult {
+  question_id: number; question_text: string; question_type: string;
+  options: Record<string, string> | string[] | null;  // dict, list, or null
+  user_answer: string; correct_answer: string;
+  explanation: string | null; is_correct: boolean;
+}
+
+interface SubmitResult {
+  quiz_id: number; score_ratio: number; correct_answers: number; total_questions: number;
+  new_difficulty: number; updated_mastery: number; time_taken_seconds: number | null;
+  question_breakdown: QuestionResult[];
+}
+
+interface ReviewResult {
+  quiz_id: number; topic: string; difficulty: number; score_ratio: number;
+  correct_answers: number; total_questions: number;
+  time_taken_seconds: number | null; question_breakdown: QuestionResult[];
+}
+
+interface QuizListItem {
+  quiz_id: number; topic: string; difficulty: number; total_questions: number;
+  status: "not_started" | "in_progress" | "completed";
+  created_at: string; completed_at: string | null;
+  score_ratio: number | null; time_taken_seconds: number | null; attempt_id: number | null;
+}
 
 // Analytics
 interface WeakTopic        { topic: string; confidence: number; weakness: number; }
 interface RevisionTopic    { topic: string; retention: number; confidence: number; revision_priority: number; }
-interface ScheduleItem     { day: string; date: string; topic: string; task: string; priority: string; }
-interface SmartRecommendation { recommended_topic: string; reason: { weakness: number; forgetting: number; confidence: number; retention: number; combined_score: number; }; }
-interface OverviewResponse { topics: string[]; weak_topics: WeakTopic[]; confidence_map: Record<string, number>; }
+interface ScheduleItem     { day: string; date: string; topic: string; task: "revise" | "practice"; priority: "high" | "medium" | "low"; instruction?: string; }
+interface SmartRecommendation { recommended_topic: string | null; reason: { topic: string; weakness: number; forgetting: number; confidence: number; retention: number; combined_score: number; } | string; }
+interface OverviewResponse { user_id: number; topics: string[]; weak_topics: WeakTopic[]; confidence_map: Record<string, number>; }
 ```
 
 ### API Namespaces
@@ -294,17 +320,20 @@ interface OverviewResponse { topics: string[]; weak_topics: WeakTopic[]; confide
 
 | Function | Method | Path | Notes |
 |---|---|---|---|
-| `rag.ask(question)` | POST | `/rag/ask` | Returns `{ answer, sources, confidence }` |
+| `rag.ask(question)` | POST | `/rag/ask` | Returns `{ answer, sources: string[], confidence }` (non-streaming) |
+
+> The `/ask` page uses `/rag/ask-stream` directly via `fetch` + manual SSE parsing (not wrapped in `lib/api.ts`). See the [Ask AI](#ask----ask-ai-appdashboardaskpagetsx) page section for the SSE protocol details.
 
 #### `quiz`
 
 | Function | Method | Path | Notes |
 |---|---|---|---|
-| `quiz.generate(params)` | POST | `/quiz/generate` | `params`: `{ topic?, num_questions, difficulty? }` |
+| `quiz.generate(params)` | POST | `/quiz/generate` | `params`: `{ topic?, num_questions?, difficulty? }` |
 | `quiz.get(quiz_id)` | GET | `/quiz/{id}` | Returns `QuizDetail` |
-| `quiz.start(quiz_id)` | POST | `/quiz/{id}/start` | Returns `{ attempt_id }` |
-| `quiz.submit(quiz_id, attempt_id, answers)` | POST | `/quiz/{id}/submit` | Returns `SubmitResult` |
-| `quiz.list()` | GET | `/quiz/my-quizzes` | Returns `QuizListItem[]` |
+| `quiz.start(quiz_id)` | POST | `/quiz/{id}/start` | Returns `{ message, attempt_id }` |
+| `quiz.submit(quiz_id, attempt_id, answers)` | POST | `/quiz/{id}/submit` | Returns `SubmitResult` with `question_breakdown` |
+| `quiz.list()` | GET | `/quiz/my-quizzes` | Returns `{ quizzes: QuizListItem[] }` |
+| `quiz.review(quiz_id)` | GET | `/quiz/{id}/review` | Returns `ReviewResult` for the last completed attempt |
 
 #### `analytics`
 
@@ -370,8 +399,10 @@ Displays:
 
 - Question input + submit button.
 - Reads `?topic=` from URL to pre-fill context.
-- Calls `rag.ask(question)` and displays the LLM answer.
-- Shows source chunk references beneath the answer.
+- Streams the answer from `POST /rag/ask-stream` using `fetch` + `ReadableStream`.
+- **SSE parsing:** text chunks (`data: "..."`) are appended token-by-token to the message; `data: [SOURCES]{...}` sets the sources panel; `data: [DONE]` stops the stream.
+- **Sources panel:** collapsible section below the answer. Shows one card per source document with a "% match" similarity badge and the retrieved passage text. Only chunks with cosine similarity ≥ 0.35 are shown.
+- **Confidence:** average cosine similarity across the displayed source chunks — reflects retrieval quality, not answer correctness.
 
 ### `/quiz` — Quiz Generator (`app/(dashboard)/quiz/page.tsx`)
 
@@ -386,17 +417,28 @@ On generate:
 
 ### `/quiz/[quiz_id]` — Quiz Player (`app/(dashboard)/quiz/[quiz_id]/page.tsx`)
 
-States: `loading` → `ready` → `started` → `submitted`
+States: `loading` → `ready` → `active` → `submitting` → `results` | `error`
 
-- **Ready**: shows quiz metadata, "Start Quiz" button calls `quiz.start(quiz_id)`.
-- **Started**: question-by-question interface. MCQ renders radio buttons; short-answer renders a text input. Progress bar across top.
-- **Submitted**: score display, per-question breakdown with correct answers and explanations.
+- **Ready**: shows quiz metadata (topic, difficulty, question count), "Start Quiz" button calls `quiz.start(quiz_id)` and stores the returned `attempt_id`.
+- **Active**: question-by-question card interface. MCQ renders labelled option buttons (A/B/C/D); short-answer renders a textarea. Dot navigator at the bottom lets you jump between questions. Answered dots turn green.
+- **Results**: score card (percentage, correct/total, time, new difficulty, mastery), then a per-question breakdown. Each card is green (correct) or red (incorrect), showing `user_answer`, `correct_answer` (if wrong), and `explanation`. MCQ answers display as `"A — option text"` — handles dict (`{"A": "text"}`), numeric-key dict (`{"0": "text"}`), and list (`["text"]`) option formats via `resolveOptionText()`.
+
+### `/quiz/[quiz_id]/review` — Review Page (`app/(dashboard)/quiz/[quiz_id]/review/page.tsx`)
+
+Standalone review of a past completed attempt, accessible from the My Quizzes history list.
+
+- Fetches via `quiz.review(quiz_id)` → `GET /quiz/{id}/review`.
+- **Hero section:** score ring (color-coded: gold ≥80%, blue ≥50%, red <50%), topic name, difficulty, progress bar, stat chips (correct count, time taken, question count), Retake Quiz button.
+- **Accordion breakdown:** one collapsible row per question. Wrong answers auto-expand on load; correct answers are collapsed. Each row shows the full question text, your answer, correct answer (if wrong), and explanation.
 
 ### `/quiz/history` — Quiz History (`app/(dashboard)/quiz/history/page.tsx`)
 
-Tabs: All | Not Started | In Progress | Completed
+Tabs: All | Not Started | In Progress | Completed. Summary strip shows counts per status.
 
-Each quiz card shows: topic, difficulty badge, status badge, question count, creation date, and a "Continue" / "Review" / "Start" button linking to `/quiz/{id}`.
+Each quiz card shows: topic, difficulty, status badge, question count, creation date. For completed quizzes, the score percentage and time taken are also shown. Action buttons:
+- **Completed** → "Review" (links to `/quiz/{id}/review`) + "Retake" (links to `/quiz?topic=...`)
+- **In Progress** → "Resume" (links to `/quiz/{id}`)
+- **Not Started** → "Start" (links to `/quiz/{id}`)
 
 ### `/analytics` — Analytics Dashboard (`app/(dashboard)/analytics/page.tsx`)
 
@@ -639,9 +681,15 @@ User fills quiz form (/quiz)
   quiz.submit(quiz_id, attempt_id, answers)
         │  POST /quiz/{id}/submit
         │
-  SubmitResult { score, correct, total, score_ratio }
+  SubmitResult { score_ratio, correct_answers, total_questions,
+                 new_difficulty, updated_mastery, question_breakdown }
         │
-  Results screen with per-question breakdown
+  Results screen: score card + per-question accordion breakdown
+        │
+  (later) quiz.review(quiz_id)  →  GET /quiz/{id}/review
+        │  Navigated from /quiz/history "Review" button
+        │
+  ReviewResult with same question_breakdown — hero + accordion layout
 ```
 
 ### Analytics Load Flow

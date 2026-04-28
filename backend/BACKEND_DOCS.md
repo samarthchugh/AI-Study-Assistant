@@ -71,8 +71,8 @@ backend/
 │   │   ├── auth.py                    # /auth/* — signup, login
 │   │   ├── users.py                   # /users/me
 │   │   ├── documents.py               # /documents/upload
-│   │   ├── rag.py                     # /rag/ask
-│   │   ├── quiz.py                    # /quiz/* — generate, fetch, start, submit
+│   │   ├── rag.py                     # /rag/ask, /rag/ask-stream (SSE)
+│   │   ├── quiz.py                    # /quiz/* — generate, list, fetch, start, submit, review
 │   │   └── analytics.py               # /analytics/* — 8 endpoints
 │   │
 │   ├── db/
@@ -424,13 +424,26 @@ Client sends {question: "What is backpropagation?"}
            │       ├── Sort by score descending
            │       └── Truncate: max 8 chunks OR 8000 chars total
            │
+           ├─► Source filtering & deduplication  [rag/pipeline.py]
+           │       │
+           │       ├── RELEVANCE_THRESHOLD = 0.35
+           │       │   Keep only chunks with score >= 0.35
+           │       │   Fallback: top-1 chunk if none meet threshold
+           │       │
+           │       ├── Deduplicate by doc_id
+           │       │   One chunk per source document (highest scoring kept)
+           │       │   Max 3 sources returned to client
+           │       │
+           │       └── confidence = avg(source scores)
+           │
            ├─► Build prompt with retrieved chunks as context
            │       [rag/prompts.py]
            │
            ├─► Groq LLM call        [services/llm.py]
            │       llama-3.1-8b-instant
            │
-           └─► Return {answer, sources, confidence}
+           └─► /rag/ask      → Return {answer, sources: list[str], confidence}
+               /rag/ask-stream → Yield SSE tokens, then [SOURCES]{sources, confidence}, then [DONE]
 ```
 
 **Key retrieval parameters:**
@@ -590,7 +603,10 @@ These values are written back to `UserTopicProgress`.
 6. Mark Quiz as completed, set completed_at
 7. Update QuizAttempt (score_ratio, time_taken_seconds)
 8. Fire IntelligenceService.process_attempt() → Redis signals
-9. Return SubmitQuizResponse
+9. Build question_breakdown list from graded results
+   └── Each entry: question_id, question_text, question_type, options,
+       user_answer, correct_answer, explanation, is_correct
+10. Return SubmitQuizResponse (includes question_breakdown)
 ```
 
 ---
@@ -760,11 +776,14 @@ All protected endpoints require `Authorization: Bearer <JWT>` header.
 | POST | `/auth/token` | No | Login, get JWT |
 | GET | `/users/me` | Yes | Current user info |
 | POST | `/documents/upload` | Yes | Upload PDF for a topic |
-| POST | `/rag/ask` | Yes | Q&A over uploaded docs |
+| POST | `/rag/ask` | Yes | Q&A over uploaded docs (JSON response) |
+| POST | `/rag/ask-stream` | Yes | Q&A streamed as SSE with source attribution |
 | POST | `/quiz/generate` | Yes | Generate adaptive quiz |
+| GET | `/quiz/my-quizzes` | Yes | List all user quizzes with computed status |
 | GET | `/quiz/{quiz_id}` | Yes | Fetch quiz + questions |
-| POST | `/quiz/{quiz_id}/start` | Yes | Start quiz attempt |
-| POST | `/quiz/{quiz_id}/submit` | Yes | Submit answers, get score |
+| POST | `/quiz/{quiz_id}/start` | Yes | Start quiz attempt, returns `attempt_id` |
+| POST | `/quiz/{quiz_id}/submit` | Yes | Submit answers, get score + question breakdown |
+| GET | `/quiz/{quiz_id}/review` | Yes | Review most recent completed attempt |
 | GET | `/analytics/all-topics` | Yes | All user topics |
 | GET | `/analytics/confidence` | Yes | Topic confidence score |
 | GET | `/analytics/weak-topics` | Yes | Top 5 weak topics |
@@ -884,6 +903,12 @@ Redis DB 0
        - Recency-weighted confidence computed
        - Confidence stored in Redis
        - Weak topics ZSET updated
+   → Returns SubmitQuizResponse with full question_breakdown
+
+9. GET /quiz/{quiz_id}/review  (any time after completion)
+   → Loads most recent completed QuizAttempt
+   → Joins QuestionAttempt records with Question data
+   → Returns ReviewResult with question_breakdown
 ```
 
 ### Analytics & Recommendation
