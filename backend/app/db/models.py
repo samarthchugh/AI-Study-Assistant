@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 Base = declarative_base()
 
 class User(Base):
-    """Registered user account. Supports local email/password auth."""
+    """Registered user account."""
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)

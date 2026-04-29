@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days (fallback if .env doesn't have this variable set)
     
     # database
     DATABASE_URL: str
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     FAISS_INDEX_TYPE: str = "flat"
     
     # LLM
-    LLM_MODEL_PATH: str 
+    LLM_MODEL_PATH: str
     GROQ_API_KEY: str
     GROQ_MODEL_NAME: str = "llama-3.1-8b-instant"
     
