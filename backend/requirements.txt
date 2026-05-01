@@ -33,3 +33,4 @@ groq
 redis
 langgraph
 langchain
+firebase-admin

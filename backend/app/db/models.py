@@ -13,8 +13,9 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True)
     provider = Column(String, default="local")
+    firebase_uid = Column(String, unique=True, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
     
 class Quiz(Base):

@@ -163,3 +163,4 @@ __marimo__/
 models/
 *.gguf
 Major_Project_Report.md
+serviceAccountKey.json
