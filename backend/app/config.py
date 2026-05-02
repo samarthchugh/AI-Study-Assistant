@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_DB: int
+
+    # Firebase Admin
+    FIREBASE_SERVICE_ACCOUNT_B64: str
     
     @property
     def FAISS_DIR(self) -> Path:
