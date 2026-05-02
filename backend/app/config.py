@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     GROQ_MODEL_NAME: str = "llama-3.1-8b-instant"
     
     # Redis
-    # TODO (Docker): change REDIS_HOST in .env from "localhost" to "study_redis"
-    #   (the container name defined in infra/docker-compose.yaml)
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_DB: int
+    REDIS_PASSWORD: str = ""
+    REDIS_SSL: bool = False
 
     # Firebase Admin
     FIREBASE_SERVICE_ACCOUNT_B64: str
@@ -59,4 +59,11 @@ class Settings(BaseSettings):
         
 settings = Settings()
 
-redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=settings.REDIS_DB, decode_responses=True)
+redis_client = redis.Redis(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    db=settings.REDIS_DB,
+    password=settings.REDIS_PASSWORD or None,
+    ssl=settings.REDIS_SSL,
+    decode_responses=True,
+)
