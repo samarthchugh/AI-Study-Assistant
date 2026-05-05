@@ -13,6 +13,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=True)
     hashed_password = Column(String, nullable=True)
     provider = Column(String, default="local")
     firebase_uid = Column(String, unique=True, nullable=True)
@@ -113,6 +114,38 @@ class QuestionAttempt(Base):
     quiz_attempt = relationship("QuizAttempt", back_populates="question_attempts")
     question = relationship("Question", back_populates="question_attempts")
     
+
+class ChatSession(Base):
+    """A named conversation session for the AI chat feature."""
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String, nullable=False, default="New Chat")
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    """A single turn (user or assistant) within a ChatSession."""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False)
+    role = Column(String, nullable=False)  # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    sources = Column(JSONB, nullable=True)
+    confidence = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+
+    session = relationship("ChatSession", back_populates="messages")
+
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="check_message_role"),
+    )
+
 
 class UserTopicProgress(Base):
     """Tracks a user's mastery and difficulty progression per topic. One row per (user, topic) pair."""

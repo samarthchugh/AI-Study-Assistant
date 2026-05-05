@@ -205,16 +205,22 @@ class IntelligenceService:
         value = self.redis.get(key)
         return float(value) if value else 0.0
         
-    def _get_weak_topics(self, user_id: int, top_k: int = 5):
-        """Return the top_k weakest topics from the Redis ZSET, ordered by weakness score descending."""
+    def _get_weak_topics(self, user_id: int, top_k: int = 5, confidence_threshold: float = 0.8):
+        """Return the top_k weakest topics from the Redis ZSET, ordered by weakness score descending.
+        Only includes topics where confidence is below the threshold (i.e. weakness > 1 - threshold).
+        """
         try:
             key = f"user:{user_id}:weak_topics"
-            results = self.redis.zrevrange(key, 0, top_k - 1, withscores=True)
-            
-            return [
-                {"topic": topic, "weakness": score, "confidence": 1 - score}
+            min_weakness = 1.0 - confidence_threshold  # 0.2 for 80% threshold
+            # fetch more than top_k to account for filtered-out topics
+            results = self.redis.zrevrange(key, 0, top_k * 3 - 1, withscores=True)
+
+            weak = [
+                {"topic": topic, "weakness": score, "confidence": round(1 - score, 4)}
                 for topic, score in results
+                if score > min_weakness
             ]
+            return weak[:top_k]
         except Exception as e:
             logger.error(f"Enable to fetch weak topics:({e})")
             return []
@@ -256,7 +262,7 @@ class IntelligenceService:
                 "reason": "error"
             }
             
-    def _compute_forgetting_score(self, last_attempts_ts: int, confidence: float, lambda_decay: float = 0.1):
+    def _compute_forgetting_score(self, last_attempts_ts: int, confidence: float, lambda_decay: float = 0.05):
         """
         Compute how much the user might have forgotten a topic based on time since last attempt and confidence level.
         
@@ -267,7 +273,7 @@ class IntelligenceService:
             if not last_attempts_ts:
                 return 0.0  # No attempts means no forgetting (or unknown)
             now  = int(time.time())
-            time_gap = (now - last_attempts_ts) / 3600  # scale to hours
+            time_gap = (now - last_attempts_ts) / (3600 * 24)  # scale to days
             retention = confidence * math.exp(-lambda_decay * time_gap)
             
             return max(0.0, min(1.0, retention))  # clamp to [0, 1]
@@ -312,9 +318,12 @@ class IntelligenceService:
                     "revision_priority": round(revision_priority, 4)
                 })
                 
+            # Only include topics where retention has dropped enough to warrant revision
+            revision_scores = [r for r in revision_scores if r["revision_priority"] > 0.3]
+
             # Sort by highest priority
             revision_scores.sort(key=lambda x: x["revision_priority"], reverse=True)
-            
+
             return revision_scores[:top_k]
         except Exception as e:
             logger.error(f"Error getting revision topics for user {user_id}: {e}")

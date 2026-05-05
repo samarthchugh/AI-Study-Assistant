@@ -45,6 +45,7 @@ _REDIS_MODULES = [
     "app.api.v1.documents.redis_client",
     "app.services.intelligence_service.redis_client",
     "app.services.quiz_engine.redis_client",
+    "app.agents.analyzer_agent.redis_client",
 ]
 
 

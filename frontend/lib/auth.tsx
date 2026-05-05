@@ -6,6 +6,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
+  onAuthStateChanged,
 } from "firebase/auth";
 import { firebaseAuth, googleProvider, githubProvider } from "./firebase";
 
@@ -13,9 +15,10 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface AuthContextValue {
   token: string | null;
+  name: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, displayName: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   loginWithGitHub: () => Promise<void>;
   logout: () => Promise<void>;
@@ -39,12 +42,21 @@ async function exchangeFirebaseToken(idToken: string): Promise<string> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
+  const [name, setName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const stored = localStorage.getItem("access_token");
     if (stored) setToken(stored);
     setIsLoading(false);
+  }, []);
+
+  // Keep name in sync with Firebase auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+      setName(user?.displayName ?? null);
+    });
+    return unsubscribe;
   }, []);
 
   const storeToken = (t: string) => {
@@ -59,9 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     storeToken(jwt);
   };
 
-  const signup = async (email: string, password: string) => {
+  const signup = async (email: string, password: string, displayName: string) => {
     const result = await createUserWithEmailAndPassword(firebaseAuth, email, password);
-    const idToken = await result.user.getIdToken();
+    if (displayName.trim()) {
+      await updateProfile(result.user, { displayName: displayName.trim() });
+      setName(displayName.trim());
+    }
+    // Force-refresh token so displayName is included in the Firebase claims
+    const idToken = await result.user.getIdToken(true);
     const jwt = await exchangeFirebaseToken(idToken);
     storeToken(jwt);
   };
@@ -87,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ token, isLoading, login, signup, loginWithGoogle, loginWithGitHub, logout }}>
+    <AuthContext.Provider value={{ token, name, isLoading, login, signup, loginWithGoogle, loginWithGitHub, logout }}>
       {children}
     </AuthContext.Provider>
   );

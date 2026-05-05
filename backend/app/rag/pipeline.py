@@ -154,7 +154,7 @@ class QueryAnswerPipeline:
             return self._refusal_answer()
         
     
-    def stream_query(self, question: str, user_id: int) -> Generator:
+    def stream_query(self, question: str, user_id: int, history: list = None) -> Generator:
         """Stream LLM output as text chunks, then yield a final dict with source passages."""
         try:
             if not question or not question.strip():
@@ -177,7 +177,7 @@ class QueryAnswerPipeline:
                 yield REFUSAL_MESSAGE
                 return
 
-            prompt = build_qa_prompt(context_chunks=context_chunks, question=question)
+            prompt = build_qa_prompt(context_chunks=context_chunks, question=question, history=history)
 
             for chunk in generate_completion_stream(prompt):
                 yield chunk

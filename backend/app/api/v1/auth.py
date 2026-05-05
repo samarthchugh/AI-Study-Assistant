@@ -27,19 +27,27 @@ def firebase_login(payload: FirebaseTokenPayload, db: Session = Depends(get_db))
 
     email: str | None = decoded.get("email")
     firebase_uid: str = decoded["uid"]
+    display_name: str | None = decoded.get("name")
 
     if not email:
         raise HTTPException(status_code=400, detail="Email not available from this provider")
 
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        user = User(email=email, hashed_password=None, provider="firebase", firebase_uid=firebase_uid)
+        user = User(email=email, name=display_name, hashed_password=None, provider="firebase", firebase_uid=firebase_uid)
         db.add(user)
         db.commit()
         db.refresh(user)
-    elif not user.firebase_uid:
-        user.firebase_uid = firebase_uid
-        db.commit()
+    else:
+        updated = False
+        if not user.firebase_uid:
+            user.firebase_uid = firebase_uid
+            updated = True
+        if display_name and not user.name:
+            user.name = display_name
+            updated = True
+        if updated:
+            db.commit()
 
     return {"access_token": create_access_token(data={"sub": str(user.id)}), "token_type": "bearer"}
 

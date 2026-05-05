@@ -17,17 +17,19 @@ class LLMEnhance:
             
             prompt = f"""
             You are a helpful study assistant.
-            
-            Generate a short and practical instruction.
-            
+
+            Write a short, practical study instruction for the following:
+
             Topic: {topic}
             Task: {task}
-            
+
             RULES:
-            - If task is 'revise' -> tell what to revise.
-            - If task is 'practice' -> tell what to practice.
-            - Keep it 1-2 lines
-            - No extra explaination
+            - Do NOT start with "Task:", "Topic:", or repeat the task/topic name.
+            - If task is 'revise'   -> tell the student what specific concepts to revisit.
+            - If task is 'practice' -> tell the student what to actively practise or attempt.
+            - If task is 'maintain' -> give a light tip to keep knowledge fresh (e.g. skim notes, do 2-3 questions).
+            - Start directly with the action verb (e.g. "Revisit...", "Attempt...", "Skim...").
+            - Keep it to 1 sentence.
             """
             
             try:

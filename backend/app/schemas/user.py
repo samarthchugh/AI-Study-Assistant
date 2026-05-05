@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
+from typing import Optional
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -8,10 +9,11 @@ class UserCreate(BaseModel):
         max_length=64,
         description="Password must be between 8 and 64 characters long."
     )
-    
+
 class UserResponse(BaseModel):
     id: int
     email: EmailStr
+    name: Optional[str] = None
     provider: str
     created_at: datetime
 

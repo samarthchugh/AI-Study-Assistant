@@ -15,6 +15,7 @@ import { GraduationCap, Loader2, ArrowLeft } from "lucide-react";
 export default function SignupPage() {
   const { signup, loginWithGoogle, loginWithGitHub } = useAuth();
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -29,7 +30,7 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
     try {
-      await signup(email, password);
+      await signup(email, password, name);
       router.replace("/dashboard");
     } catch (err) {
       setError((err as Error).message ?? "Signup failed");
@@ -94,6 +95,18 @@ export default function SignupPage() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="Your full name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  autoComplete="name"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
